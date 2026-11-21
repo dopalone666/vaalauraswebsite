@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "vaalauras-auth",
+  "main": "worker.ts",
+  "compatibility_date": "2025-11-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "vars": {
+    "APP_NAME": "VaalAuras",
+    "CREATOR_DISPLAY_NAME": "VaalAuras",
+    "APP_PROTOCOL_SCHEME": "vaalauras",
+    "APP_LOCALHOST_PORT": "48912",
+    "PATREON_MIN_TIER_CENTS": "500"
+  }
+  // Optional: If you want strict cross-edge single-use handoff code burn,
+  // create a free KV namespace (`npx wrangler kv namespace create AUTH_KV`)
+  // and uncomment:
+  // ,
+  // "kv_namespaces": [
+  //   { "binding": "AUTH_KV", "id": "YOUR_KV_NAMESPACE_ID" }
+  // ]
+}

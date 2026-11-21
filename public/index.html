@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/assets/vaalauras_logo.png" />
+    <title>VaalAuras — Member Login &amp; Desktop Access</title>
+    <meta
+      name="description"
+      content="Sign in with Twitch or Patreon ($5+ tier) to verify your subscription and unlock VaalAuras desktop features."
+    />
+    <meta property="og:title" content="VaalAuras — Member Login &amp; Desktop Access" />
+    <meta
+      property="og:description"
+      content="Sign in with Twitch or Patreon ($5+ tier) to verify your subscription and unlock VaalAuras desktop features."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a href="#portal" class="brand" id="brand-link">
+          <span class="brand-icon-wrap">
+            <img
+              src="/assets/vaalauras_logo.png"
+              alt="VaalAuras emblem"
+              class="brand-logo"
+              id="brand-logo-img"
+              width="34"
+              height="34"
+            />
+            <svg
+              id="brand-logo-fallback"
+              class="brand-logo-fallback hidden"
+              viewBox="0 0 64 64"
+              fill="none"
+              aria-hidden="true"
+            >
+              <circle cx="32" cy="32" r="24" stroke="#8C6747" stroke-width="2.5" fill="#181012" />
+              <path
+                d="M32 6 L37 22 L54 14 L42 29 L58 32 L42 35 L54 50 L37 42 L32 58 L27 42 L10 50 L22 35 L6 32 L22 29 L10 14 L27 22 Z"
+                fill="#7D5236"
+                stroke="#C99862"
+                stroke-width="1.5"
+              />
+              <circle cx="32" cy="32" r="9.5" fill="#2A090B" stroke="#C99862" stroke-width="1.5" />
+              <circle cx="32" cy="32" r="4.5" fill="#9E1E24" />
+              <circle cx="32" cy="32" r="2" fill="#090506" />
+            </svg>
+          </span>
+          <span class="brand-wordmark">VaalAuras</span>
+        </a>
+
+        <nav class="topbar-nav" aria-label="Primary navigation">
+          <button
+            type="button"
+            class="nav-tab is-active"
+            data-tab="portal"
+            aria-pressed="true"
+          >
+            <span class="label-full">Login Portal</span>
+            <span class="label-short">Portal</span>
+          </button>
+          <button
+            type="button"
+            class="nav-tab"
+            data-tab="python"
+            aria-pressed="false"
+          >
+            <span class="label-full">Python App</span>
+            <span class="label-short">Python</span>
+          </button>
+          <button
+            type="button"
+            class="nav-tab"
+            data-tab="setup"
+            aria-pressed="false"
+          >
+            <span class="label-full">Cloudflare Setup</span>
+            <span class="label-short">Setup</span>
+          </button>
+        </nav>
+
+        <div class="topbar-actions">
+          <button
+            type="button"
+            id="topbar-deploy-btn"
+            class="btn btn-bronze btn-sm"
+          >
+            <span class="label-full">Deploy Guide</span>
+            <span class="label-short">Guide</span>
+          </button>
+          <button
+            type="button"
+            id="topbar-signout-btn"
+            class="btn btn-bronze btn-sm hidden"
+          >
+            <span class="label-full">Sign Out</span>
+            <span class="label-short">Exit</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <div id="global-banner" class="alert-banner hidden" role="status"></div>
+
+      <!-- VIEW 1: LOGIN PORTAL -->
+      <section id="view-portal" class="view-section">
+        <div id="portal-signing-warning" class="alert-banner alert-warn hidden">
+          <div>
+            <strong>Signing secret missing on Cloudflare:</strong>
+            Set <code>SESSION_SIGNING_SECRET</code> in your Cloudflare Worker Secrets before going live.
+            <button type="button" class="inline-link-btn" data-jump-tab="setup">Open Setup Guide</button>
+          </div>
+        </div>
+
+        <!-- STATE A: SIGNED OUT -->
+        <div id="state-logged-out" class="portal-split">
+          <article class="panel hud-frame">
+            <span class="hud-corner tl" aria-hidden="true"></span>
+            <span class="hud-corner tr" aria-hidden="true"></span>
+            <span class="hud-corner bl" aria-hidden="true"></span>
+            <span class="hud-corner br" aria-hidden="true"></span>
+
+            <p class="eyebrow">Member Verification</p>
+            <h1 class="display-title">Unlock VaalAuras Desktop</h1>
+            <p class="lead-copy">
+              Sign in with your Twitch channel subscription (including Twitch Prime) or an active
+              Patreon <span id="min-tier-copy">$5.00</span>+ tier to launch and unlock paid features
+              in VaalAuras.
+            </p>
+
+            <div class="provider-stack">
+              <button type="button" id="btn-twitch-login" class="btn btn-twitch btn-lg">
+                <svg class="provider-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M4.3 2 2.5 5.4v14.8h5.3V23h3l2.8-2.8h4.2L22 16V2H4.3zm15.9 13.1-2.8 2.8h-4.7l-2.5 2.5v-2.5H5.8V3.9h14.4v11.2zM16.2 7.2h-1.9v5.6h1.9V7.2zm-5 0H9.3v5.6h1.9V7.2z" />
+                </svg>
+                <span>Continue with Twitch</span>
+                <span class="provider-note">Paid &amp; Prime</span>
+              </button>
+
+              <button type="button" id="btn-patreon-login" class="btn btn-patreon btn-lg">
+                <svg class="provider-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M15.386 2.5c-3.816 0-6.92 3.104-6.92 6.92 0 3.803 3.104 6.899 6.92 6.899 3.805 0 6.9-3.096 6.9-6.899 0-3.816-3.095-6.92-6.9-6.92zM2.214 2.5h3.58v19h-3.58z" />
+                </svg>
+                <span>Continue with Patreon</span>
+                <span id="patreon-tier-note" class="provider-note">$5.00+ tier</span>
+              </button>
+            </div>
+
+            <div id="unconfigured-notice" class="notice-box hidden">
+              <p class="notice-title">OAuth keys are not added to this host yet</p>
+              <p class="notice-text">
+                Once you deploy to Cloudflare and add your Twitch / Patreon keys, clicking above
+                opens the real provider sign-in popup. Want to test the flow right now?
+              </p>
+              <div class="notice-actions">
+                <button type="button" id="btn-toggle-sandbox" class="btn btn-bronze btn-sm">
+                  Open Preview Sandbox
+                </button>
+                <button type="button" id="btn-download-zip-home" class="btn btn-crimson btn-sm hidden">
+                  Download Project (.zip)
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm" data-jump-tab="setup">
+                  Configure Cloudflare Keys
+                </button>
+              </div>
+            </div>
+
+            <div id="sandbox-drawer" class="sandbox-box hidden">
+              <div class="sandbox-header">
+                <span>Preview Sandbox</span>
+                <span class="muted-text">Tests verification &amp; Python handoff locally</span>
+              </div>
+              <div class="sandbox-grid">
+                <button type="button" class="btn btn-outline btn-sm" data-demo="twitch_active">
+                  Twitch Prime (Active)
+                </button>
+                <button type="button" class="btn btn-outline btn-sm" data-demo="patreon_active">
+                  Patreon $5 Tier (Active)
+                </button>
+                <button type="button" class="btn btn-outline btn-sm" data-demo="patreon_inactive">
+                  Patreon $2 Tier (Denied)
+                </button>
+              </div>
+            </div>
+          </article>
+
+          <aside class="panel vaal-grid-surface info-panel">
+            <h2 class="section-title">How verification works</h2>
+            <ol class="step-list">
+              <li>
+                <strong>1. Verify privately on Cloudflare</strong>
+                <span>
+                  Twitch and Patreon send your subscription status directly to your Cloudflare
+                  Worker. No API secrets ever touch the browser or your Python <code>.exe</code>.
+                </span>
+              </li>
+              <li>
+                <strong>2. Single-use desktop handoff</strong>
+                <span>
+                  Verified members click <strong>Log in</strong> to generate a 5-minute single-use
+                  code sent via <code>vaalauras://auth</code> or localhost callback.
+                </span>
+              </li>
+              <li>
+                <strong>3. Signed 7-day unlock token</strong>
+                <span>
+                  VaalAuras exchanges that code via <code>/api/app/exchange</code> for an
+                  HMAC-signed license token and verifies it automatically on startup.
+                </span>
+              </li>
+            </ol>
+
+            <div class="divider"></div>
+            <div class="status-strip">
+              <span class="status-label">Twitch OAuth</span>
+              <span id="cfg-twitch-status" class="status-value">Checking...</span>
+              <span class="sep" aria-hidden="true">·</span>
+              <span class="status-label">Patreon OAuth</span>
+              <span id="cfg-patreon-status" class="status-value">Checking...</span>
+            </div>
+          </aside>
+        </div>
+
+        <!-- STATE B: SIGNED IN & ELIGIBLE -->
+        <div id="state-verified" class="single-card-wrap hidden">
+          <article class="panel hud-frame verified-card">
+            <span class="hud-corner tl" aria-hidden="true"></span>
+            <span class="hud-corner tr" aria-hidden="true"></span>
+            <span class="hud-corner bl" aria-hidden="true"></span>
+            <span class="hud-corner br" aria-hidden="true"></span>
+
+            <div class="member-row">
+              <div class="avatar-box">
+                <img id="verified-avatar-img" src="" alt="" class="avatar-img hidden" />
+                <span id="verified-avatar-initials" class="avatar-initials">VA</span>
+              </div>
+              <div class="member-meta">
+                <div class="member-name-row">
+                  <h1 id="verified-name" class="member-name">Member</h1>
+                  <span id="verified-demo-flag" class="meta-inline hidden">· Preview Sandbox</span>
+                </div>
+                <p id="verified-summary" class="member-sub">
+                  Verified · Tier 1 / Prime
+                </p>
+              </div>
+            </div>
+
+            <div class="verdict-box verdict-ok">
+              <p id="verified-reason" class="verdict-text">
+                Active subscription verified. Click Log in below to launch VaalAuras.
+              </p>
+              <p class="verdict-time">
+                Checked <span id="verified-checked-at" class="mono tabular-nums">—</span>
+              </p>
+            </div>
+
+            <div class="primary-cta-row">
+              <button type="button" id="btn-launch-desktop" class="btn btn-crimson btn-xl">
+                Log in
+              </button>
+              <p class="cta-caption">
+                Opens the VaalAuras desktop app and unlocks paid features.
+              </p>
+            </div>
+
+            <div id="handoff-drawer" class="handoff-box hidden">
+              <div class="handoff-head">
+                <h2>Desktop Handoff Ready</h2>
+                <span class="mono tabular-nums muted-text">Expires in 5m · Single-use</span>
+              </div>
+
+              <div class="handoff-actions">
+                <a id="handoff-protocol-link" href="#portal" class="btn btn-crimson btn-sm">
+                  Open VaalAuras App
+                </a>
+                <button type="button" id="btn-send-localhost" class="btn btn-bronze btn-sm">
+                  Send to Localhost:48912
+                </button>
+                <button type="button" id="btn-test-exchange" class="btn btn-outline btn-sm">
+                  Test Exchange
+                </button>
+              </div>
+
+              <div class="code-field-row">
+                <label for="handoff-code-input" class="field-label">One-time handoff code</label>
+                <div class="copy-row">
+                  <input
+                    id="handoff-code-input"
+                    type="text"
+                    readonly
+                    class="mono-input"
+                    value=""
+                  />
+                  <button type="button" id="btn-copy-handoff" class="btn btn-bronze btn-sm">
+                    Copy Code
+                  </button>
+                </div>
+              </div>
+
+              <div id="exchange-test-output" class="code-output hidden"></div>
+            </div>
+
+            <div class="secondary-actions">
+              <button type="button" id="btn-recheck-verified" class="btn btn-outline btn-sm">
+                Re-check Subscription
+              </button>
+              <button type="button" id="btn-signout-verified" class="btn btn-ghost btn-sm">
+                Switch Account
+              </button>
+            </div>
+          </article>
+        </div>
+
+        <!-- STATE C: SIGNED IN BUT NOT SUBSCRIBED / BELOW $5 -->
+        <div id="state-denied" class="single-card-wrap hidden">
+          <article class="panel hud-frame verified-card">
+            <span class="hud-corner tl" aria-hidden="true"></span>
+            <span class="hud-corner tr" aria-hidden="true"></span>
+            <span class="hud-corner bl" aria-hidden="true"></span>
+            <span class="hud-corner br" aria-hidden="true"></span>
+
+            <div class="member-row">
+              <div class="avatar-box">
+                <img id="denied-avatar-img" src="" alt="" class="avatar-img hidden" />
+                <span id="denied-avatar-initials" class="avatar-initials">VA</span>
+              </div>
+              <div class="member-meta">
+                <div class="member-name-row">
+                  <h1 id="denied-name" class="member-name">Member</h1>
+                  <span id="denied-demo-flag" class="meta-inline hidden">· Preview Sandbox</span>
+                </div>
+                <p id="denied-summary" class="member-sub">Subscription required</p>
+              </div>
+            </div>
+
+            <div class="verdict-box verdict-fail">
+              <p id="denied-reason" class="verdict-text">
+                No active Twitch subscription or $5+ Patreon tier was found.
+              </p>
+              <p class="verdict-time">
+                Checked <span id="denied-checked-at" class="mono tabular-nums">—</span>
+              </p>
+            </div>
+
+            <div class="denied-links" id="denied-subscribe-links">
+              <a
+                id="link-subscribe-twitch"
+                href="https://www.twitch.tv"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn btn-twitch btn-sm hidden"
+              >
+                Subscribe on Twitch
+              </a>
+              <a
+                id="link-subscribe-patreon"
+                href="https://www.patreon.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn btn-patreon btn-sm hidden"
+              >
+                Join on Patreon ($5+ Tier)
+              </a>
+            </div>
+
+            <div class="secondary-actions">
+              <button type="button" id="btn-recheck-denied" class="btn btn-crimson btn-sm">
+                Re-check Subscription
+              </button>
+              <button type="button" id="btn-signout-denied" class="btn btn-outline btn-sm">
+                Try Another Account
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- VIEW 2: PYTHON DESKTOP INTEGRATION -->
+      <section id="view-python" class="view-section hidden">
+        <div class="panel">
+          <div class="panel-header-split">
+            <div>
+              <p class="eyebrow">Desktop Client Integration</p>
+              <h1 class="display-title-sm">Connect Your VaalAuras Python App</h1>
+              <p class="muted-copy">
+                Customize your Cloudflare URL, custom protocol scheme, and localhost port. Paste the
+                AI Assistant Prompt into your Python IDE/chat or drop <code>vaalauras_auth.py</code>
+                directly into your project.
+              </p>
+            </div>
+          </div>
+
+          <div class="form-grid-3">
+            <div class="field-group">
+              <label for="py-base-url" class="field-label">Your Cloudflare Website URL</label>
+              <input id="py-base-url" type="url" class="text-input mono" />
+            </div>
+            <div class="field-group">
+              <label for="py-scheme" class="field-label">Windows Protocol Scheme</label>
+              <input id="py-scheme" type="text" class="text-input mono" value="vaalauras" />
+            </div>
+            <div class="field-group">
+              <label for="py-port" class="field-label">Localhost Callback Port</label>
+              <input id="py-port" type="number" min="1024" max="65535" class="text-input mono" value="48912" />
+            </div>
+          </div>
+
+          <div class="snippet-toolbar">
+            <div class="segmented" role="tablist" aria-label="Python integration snippets">
+              <button type="button" class="seg-btn is-active" data-py-tab="prompt">
+                AI Assistant Prompt
+              </button>
+              <button type="button" class="seg-btn" data-py-tab="python">
+                vaalauras_auth.py
+              </button>
+              <button type="button" class="seg-btn" data-py-tab="registry">
+                Windows Protocol (.reg)
+              </button>
+            </div>
+            <div class="snippet-actions">
+              <button type="button" id="btn-download-py" class="btn btn-outline btn-sm">
+                Download vaalauras_auth.py
+              </button>
+              <button type="button" id="btn-copy-snippet" class="btn btn-crimson btn-sm">
+                Copy Prompt
+              </button>
+            </div>
+          </div>
+
+          <pre id="py-snippet-pre" class="code-viewer is-wrapped"></pre>
+
+          <div class="divider"></div>
+
+          <div class="tester-box">
+            <div>
+              <h2 class="section-title-sm">Test /api/app/exchange</h2>
+              <p class="muted-copy">
+                Paste any single-use handoff code generated from the Login Portal to inspect the
+                exact JSON response your Python app receives.
+              </p>
+            </div>
+            <div class="copy-row">
+              <input
+                id="tester-code-input"
+                type="text"
+                class="mono-input"
+                placeholder="Paste handoff code here..."
+              />
+              <button type="button" id="btn-run-exchange-test" class="btn btn-bronze btn-sm">
+                Exchange Code
+              </button>
+            </div>
+            <pre id="tester-result-pre" class="code-viewer hidden"></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 3: CLOUDFLARE SETUP & OAUTH GUIDE -->
+      <section id="view-setup" class="view-section hidden">
+        <div class="setup-stack">
+          <article class="panel">
+            <p class="eyebrow">Step 1 · OAuth Callback URLs</p>
+            <h1 class="display-title-sm">Deploy on Cloudflare Workers (Free, No Sleep)</h1>
+            <p class="muted-copy">
+              Enter the <code>workers.dev</code> URL or custom domain where you will host this site.
+              Use the generated callback URLs below when registering your Twitch and Patreon apps.
+            </p>
+
+            <div class="field-group">
+              <label for="setup-host-url" class="field-label">Your Hosted Cloudflare URL</label>
+              <input
+                id="setup-host-url"
+                type="url"
+                class="text-input mono"
+                placeholder="https://vaalauras-auth.yourname.workers.dev"
+              />
+              <div class="preset-row">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-xs"
+                  data-url-preset="https://vaalauras-auth.yourname.workers.dev"
+                >
+                  workers.dev example
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-outline btn-xs"
+                  data-url-preset="https://auth.vaalauras.com"
+                >
+                  Custom domain example
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-outline btn-xs"
+                  data-url-preset="http://localhost:3000"
+                >
+                  http://localhost:3000
+                </button>
+              </div>
+            </div>
+
+            <div class="callback-grid">
+              <div class="field-group">
+                <label for="setup-twitch-cb" class="field-label">Twitch OAuth Redirect URL</label>
+                <div class="copy-row">
+                  <input id="setup-twitch-cb" type="text" readonly class="mono-input" />
+                  <button type="button" class="btn btn-bronze btn-sm" data-copy-target="setup-twitch-cb">
+                    Copy
+                  </button>
+                </div>
+              </div>
+              <div class="field-group">
+                <label for="setup-patreon-cb" class="field-label">Patreon Redirect URI</label>
+                <div class="copy-row">
+                  <input id="setup-patreon-cb" type="text" readonly class="mono-input" />
+                  <button type="button" class="btn btn-bronze btn-sm" data-copy-target="setup-patreon-cb">
+                    Copy
+                  </button>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <div class="setup-2col">
+            <article class="panel">
+              <p class="eyebrow">Step 2 · Deploy Code</p>
+              <h2 class="section-title">Put the site on Cloudflare</h2>
+              <div id="setup-zip-wrap" class="notice-actions hidden" style="margin-bottom: 14px;">
+                <button type="button" id="btn-download-zip-setup" class="btn btn-crimson btn-sm">
+                  Download Cloudflare Bundle (.zip)
+                </button>
+              </div>
+              <ol class="guide-list">
+                <li>
+                  <strong>Upload to a private GitHub repo</strong> (or unzip the downloaded bundle on
+                  your PC). Replace <code>public/assets/vaalauras_logo.png</code> with your full-res
+                  logo if desired.
+                </li>
+                <li>
+                  <strong>No-CLI option (Cloudflare Dashboard):</strong> Log in at
+                  <a href="https://dash.cloudflare.com" target="_blank" rel="noopener noreferrer"
+                    >dash.cloudflare.com</a
+                  >
+                  -> <em>Workers &amp; Pages</em> -> <em>Create</em> -> <em>Import a repository</em>.
+                  Leave Build command empty and Deploy command as <code>npx wrangler deploy</code>.
+                </li>
+                <li>
+                  <strong>Or deploy from your PC terminal:</strong>
+                  <pre class="mini-code">npx wrangler login
+npx wrangler deploy</pre>
+                </li>
+              </ol>
+            </article>
+
+            <article class="panel">
+              <p class="eyebrow">Step 3 · Cloudflare Secrets</p>
+              <h2 class="section-title">Add your hidden keys</h2>
+              <p class="muted-copy">
+                In Cloudflare Dashboard -> <em>Workers &amp; Pages</em> -> <strong>vaalauras-auth</strong>
+                -> <em>Settings</em> -> <em>Variables and Secrets</em>, add these as
+                <strong>Secrets</strong>:
+              </p>
+              <ul class="secret-list mono">
+                <li><strong>SESSION_SIGNING_SECRET</strong> <span>(any 32+ char random string)</span></li>
+                <li><strong>TWITCH_CLIENT_ID</strong> <span>(from dev.twitch.tv)</span></li>
+                <li><strong>TWITCH_CLIENT_SECRET</strong> <span>(from dev.twitch.tv)</span></li>
+                <li><strong>TWITCH_BROADCASTER_ID</strong> <span>(your numeric Twitch ID)</span></li>
+                <li><strong>TWITCH_CHANNEL_LOGIN</strong> <span>(optional, your channel name)</span></li>
+                <li><strong>PATREON_CLIENT_ID</strong> <span>(from patreon.com/portal)</span></li>
+                <li><strong>PATREON_CLIENT_SECRET</strong> <span>(from patreon.com/portal)</span></li>
+                <li><strong>PATREON_CREATOR_URL</strong> <span>(optional, link to your Patreon)</span></li>
+              </ul>
+              <p class="muted-copy">
+                Generate a random signing secret on Windows PowerShell:
+              </p>
+              <pre class="mini-code">[Convert]::ToHexString((1..32 | % {Get-Random -Max 256}))</pre>
+            </article>
+          </div>
+
+          <article class="panel">
+            <p class="eyebrow">Step 4 · Register Twitch &amp; Patreon</p>
+            <div class="setup-2col-plain">
+              <div>
+                <h2 class="section-title">Twitch Developer Console</h2>
+                <ol class="guide-list">
+                  <li>
+                    Open
+                    <a
+                      href="https://dev.twitch.tv/console/apps"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      >dev.twitch.tv/console/apps</a
+                    >
+                    and register a new application (Category: <em>Application Integration</em>,
+                    Client Type: <em>Confidential</em>).
+                  </li>
+                  <li>Paste your <strong>Twitch OAuth Redirect URL</strong> from Step 1.</li>
+                  <li>
+                    Copy Client ID &amp; Client Secret. To get your numeric
+                    <code>TWITCH_BROADCASTER_ID</code>, use a Twitch User ID lookup tool or sign in
+                    once with your creator account.
+                  </li>
+                </ol>
+              </div>
+              <div>
+                <h2 class="section-title">Patreon Developer Portal</h2>
+                <ol class="guide-list">
+                  <li>
+                    Open
+                    <a
+                      href="https://www.patreon.com/portal/registration/register-clients"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      >patreon.com/portal/registration/register-clients</a
+                    >
+                    and create an <strong>API v2</strong> client.
+                  </li>
+                  <li>Paste your <strong>Patreon Redirect URI</strong> from Step 1.</li>
+                  <li>
+                    Copy Client ID &amp; Client Secret into Cloudflare Secrets. By default,
+                    <code>PATREON_MIN_TIER_CENTS</code> is <code>500</code> ($5.00/mo tier).
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
