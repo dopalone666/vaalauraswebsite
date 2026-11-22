@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildDeveloperEntitlement,
   evaluateTwitchSubscription,
   evaluatePatreonMembership,
+  isDeveloperTwitchLogin,
 } from './entitlement';
 
 test('Twitch: verifies active Tier 1 / Prime subscription', () => {
@@ -179,3 +181,19 @@ test('Patreon: enforces requiredTierId when specified', () => {
   });
   assert.equal(rejected.active, false);
 });
+
+test('Developer allowlist: recognizes dopalonee case-insensitively and ignores non-developers', () => {
+  assert.equal(isDeveloperTwitchLogin('Dopalonee'), true);
+  assert.equal(isDeveloperTwitchLogin(' dopalonee '), true);
+  assert.equal(isDeveloperTwitchLogin('other_user'), false);
+  assert.equal(isDeveloperTwitchLogin('friend_dev', 'friend_dev,second_dev'), true);
+});
+
+test('Developer entitlement: constructs active Developer tier payload', () => {
+  const ent = buildDeveloperEntitlement('twitch', 'Developer Twitch account verified.');
+  assert.equal(ent.active, true);
+  assert.equal(ent.provider, 'twitch');
+  assert.equal(ent.tierLabel, 'Developer');
+  assert.equal(ent.tierCode, 'developer');
+});
+

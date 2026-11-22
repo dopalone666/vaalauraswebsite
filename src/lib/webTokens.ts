@@ -70,6 +70,32 @@ export function randomHex(byteLength: number = 16): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+export async function constantTimeEqualStringWeb(
+  a: string,
+  b: string
+): Promise<boolean> {
+  const randomKeyBytes = new Uint8Array(new ArrayBuffer(32));
+  globalThis.crypto.getRandomValues(randomKeyBytes);
+  const key = await globalThis.crypto.subtle.importKey(
+    'raw',
+    randomKeyBytes,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify']
+  );
+  const macA = await globalThis.crypto.subtle.sign(
+    'HMAC',
+    key,
+    textEncoder.encode(a)
+  );
+  return globalThis.crypto.subtle.verify(
+    'HMAC',
+    key,
+    macA,
+    textEncoder.encode(b)
+  );
+}
+
 async function importHmacKey(
   secret: string,
   usage: 'sign' | 'verify'

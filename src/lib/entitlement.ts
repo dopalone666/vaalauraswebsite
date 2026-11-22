@@ -1,4 +1,43 @@
-import type { EntitlementResult } from '../types';
+import type { AuthProvider, EntitlementResult } from '../types';
+
+const DEFAULT_DEV_TWITCH_LOGINS = ['dopalonee'];
+
+export function isDeveloperTwitchLogin(
+  login?: string | null,
+  extraLoginsCsv?: string | null
+): boolean {
+  const normalized = (login || '').trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  const allowlist = new Set(DEFAULT_DEV_TWITCH_LOGINS);
+  if (extraLoginsCsv) {
+    for (const part of extraLoginsCsv.split(',')) {
+      const cleaned = part.trim().toLowerCase();
+      if (cleaned) {
+        allowlist.add(cleaned);
+      }
+    }
+  }
+  return allowlist.has(normalized);
+}
+
+export function buildDeveloperEntitlement(
+  provider: AuthProvider,
+  reason: string = 'Developer account verified (permanent access).',
+  nowIso: string = new Date().toISOString()
+): EntitlementResult {
+  return {
+    active: true,
+    provider,
+    tierLabel: 'Developer',
+    tierCode: 'developer',
+    amountCents: null,
+    isGift: false,
+    reason,
+    checkedAt: nowIso,
+  };
+}
 
 interface TwitchSubscriptionItem {
   broadcaster_id?: string;

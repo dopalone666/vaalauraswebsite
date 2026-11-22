@@ -1,10 +1,13 @@
 import {
+  buildDeveloperEntitlement,
   evaluatePatreonMembership,
   evaluateTwitchSubscription,
+  isDeveloperTwitchLogin,
 } from './src/lib/entitlement';
 import {
   buildAppLaunchUrl,
   buildLocalhostCallbackUrl,
+  constantTimeEqualStringWeb,
   openPayloadWeb,
   randomHex,
   sanitizeLocalhostPort,
@@ -45,6 +48,9 @@ export interface WorkerEnv {
   PATREON_CAMPAIGN_ID?: string;
   PATREON_TIER_ID?: string;
   PATREON_CREATOR_URL?: string;
+  DEV_LOGIN_EMAIL?: string;
+  DEV_LOGIN_PASSWORD?: string;
+  DEV_TWITCH_LOGINS?: string;
   SESSION_SIGNING_SECRET?: string;
   ASSETS?: AssetsBindingLike;
   AUTH_KV?: KVNamespaceLike;
@@ -166,10 +172,21 @@ function getPatreonConfig(env: WorkerEnv) {
   };
 }
 
+function getDeveloperLoginConfig(env: WorkerEnv) {
+  const email = (env.DEV_LOGIN_EMAIL || '').trim().toLowerCase();
+  const password = env.DEV_LOGIN_PASSWORD || '';
+  return {
+    email,
+    password,
+    configured: Boolean(email && password.length > 0),
+  };
+}
+
 function getPublicConfig(request: Request, env: WorkerEnv): PublicAppConfig {
   const appBaseUrl = resolveAppBaseUrl(request, env);
   const twitch = getTwitchConfig(env);
   const patreon = getPatreonConfig(env);
+  const developerLogin = getDeveloperLoginConfig(env);
   const signingConfigured = Boolean(getSigningSecret(env));
 
   return {
@@ -180,6 +197,7 @@ function getPublicConfig(request: Request, env: WorkerEnv): PublicAppConfig {
     patreonMinTierCents: patreon.minTierCents,
     twitchConfigured: twitch.configured,
     patreonConfigured: patreon.configured,
+    developerLoginConfigured: developerLogin.configured,
     twitchCallbackUrl: `${appBaseUrl}/auth/twitch/callback`,
     patreonCallbackUrl: `${appBaseUrl}/auth/patreon/callback`,
     appBaseUrl,
@@ -395,6 +413,22 @@ async function fetchTwitchUserAndSub(
   const twitchUser = userJson.data?.[0];
   if (!twitchUser) {
     throw new Error('Twitch returned an empty user profile.');
+  }
+
+  if (isDeveloperTwitchLogin(twitchUser.login, env.DEV_TWITCH_LOGINS)) {
+    return {
+      user: {
+        id: `twitch:${twitchUser.id}`,
+        provider: 'twitch',
+        username: twitchUser.login,
+        displayName: twitchUser.display_name || twitchUser.login,
+        avatarUrl: twitchUser.profile_image_url || null,
+      },
+      entitlement: buildDeveloperEntitlement(
+        'twitch',
+        'Developer Twitch account verified (permanent access).'
+      ),
+    };
   }
 
   const subUrl = new URL('https://api.twitch.tv/helix/subscriptions/user');
@@ -917,103 +951,69 @@ export async function handleApiOrAuthRequest(
     });
   }
 
-  // 7. Preview Sandbox (Strictly Disabled Whenever Live OAuth Secrets Exist)
-  if (method === 'POST' && pathname === '/api/auth/demo') {
-    const twitch = getTwitchConfig(env);
-    const patreon = getPatreonConfig(env);
-    if (twitch.configured || patreon.configured) {
-      return jsonResponse(
-        { error: 'Preview sandbox is disabled when live OAuth keys are configured.' },
-        403
-      );
-    }
-
+  // 7. Developer Email + Password Login (Credentials stored solely in Worker Env/Secrets)
+  if (method === 'POST' && pathname === '/api/auth/developer') {
     const signingSecret = getSigningSecret(env);
     if (!signingSecret) {
+      return jsonResponse({ error: 'Server signing secret is not configured.' }, 503);
+    }
+
+    const devConfig = getDeveloperLoginConfig(env);
+    if (!devConfig.configured) {
       return jsonResponse(
-        { error: 'SESSION_SIGNING_SECRET is not configured yet.' },
+        { error: 'Developer login is not configured on this server.' },
         503
       );
     }
 
     const body = await safeParseJsonBody(request);
-    const scenario = typeof body?.scenario === 'string' ? body.scenario : '';
-    const nowIso = new Date().toISOString();
+    const emailRaw = typeof body?.email === 'string' ? body.email : '';
+    const passwordRaw = typeof body?.password === 'string' ? body.password : '';
+    const normalizedEmail = emailRaw.trim().toLowerCase();
 
-    let user: VerifiedUser;
-    let entitlement: EntitlementResult;
-
-    if (scenario === 'twitch_active') {
-      user = {
-        id: 'twitch:demo-4410',
-        provider: 'twitch',
-        username: 'exile_watcher',
-        displayName: 'ExileWatcher',
-        avatarUrl: null,
-      };
-      entitlement = {
-        active: true,
-        provider: 'twitch',
-        tierLabel: 'Tier 1 / Prime',
-        tierCode: '1000',
-        amountCents: null,
-        isGift: false,
-        reason: 'Active Tier 1 / Prime Twitch subscription verified (Preview Sandbox).',
-        checkedAt: nowIso,
-      };
-    } else if (scenario === 'patreon_active') {
-      user = {
-        id: 'patreon:demo-8821',
-        provider: 'patreon',
-        username: 'vaal_patron',
-        displayName: 'VaalPatron',
-        avatarUrl: null,
-      };
-      entitlement = {
-        active: true,
-        provider: 'patreon',
-        tierLabel: 'Vaal Supporter ($5.00/mo)',
-        tierCode: 'tier_500',
-        amountCents: 500,
-        isGift: false,
-        reason: 'Active Patreon membership verified at $5.00/mo (Preview Sandbox).',
-        checkedAt: nowIso,
-      };
-    } else if (scenario === 'patreon_inactive') {
-      user = {
-        id: 'patreon:demo-1099',
-        provider: 'patreon',
-        username: 'free_follower',
-        displayName: 'FreeFollower',
-        avatarUrl: null,
-      };
-      entitlement = {
-        active: false,
-        provider: 'patreon',
-        tierLabel: 'Tip Tier ($2.00/mo)',
-        tierCode: 'tier_200',
-        amountCents: 200,
-        isGift: false,
-        reason: 'Current Patreon pledge is $2.00/mo. At least the $5.00/mo tier is required to unlock VaalAuras.',
-        checkedAt: nowIso,
-      };
-    } else {
-      return jsonResponse({ error: 'Unknown sandbox scenario.' }, 400);
+    if (
+      !normalizedEmail ||
+      !passwordRaw ||
+      normalizedEmail.length > 256 ||
+      passwordRaw.length > 256
+    ) {
+      return jsonResponse({ error: 'Enter your email and password.' }, 400);
     }
+
+    const [emailMatch, passwordMatch] = await Promise.all([
+      constantTimeEqualStringWeb(normalizedEmail, devConfig.email),
+      constantTimeEqualStringWeb(passwordRaw, devConfig.password),
+    ]);
+
+    if (!emailMatch || !passwordMatch) {
+      return jsonResponse({ error: 'Invalid email or password.' }, 401);
+    }
+
+    const user: VerifiedUser = {
+      id: 'dev:dopalone',
+      provider: 'developer',
+      username: 'dopalone',
+      displayName: 'Developer',
+      avatarUrl: null,
+    };
+    const entitlement = buildDeveloperEntitlement(
+      'developer',
+      'Developer account verified (permanent access).'
+    );
 
     const bearerToken = await sealPayloadWeb<SealedSessionPayload>(
       {
         user,
         entitlement,
         providerAccessToken: null,
-        isDemo: true,
+        isDemo: false,
       },
       signingSecret,
       'session',
       12 * 60 * 60
     );
 
-    return jsonResponse({ bearerToken, user, entitlement, isDemo: true });
+    return jsonResponse({ bearerToken, user, entitlement, isDemo: false });
   }
 
   // 8. Current Session Info
@@ -1040,7 +1040,12 @@ export async function handleApiOrAuthRequest(
     let updatedUser = session.user;
     let updatedEntitlement = session.entitlement;
 
-    if (session.isDemo) {
+    if (session.user.provider === 'developer') {
+      updatedEntitlement = buildDeveloperEntitlement(
+        'developer',
+        'Developer account verified (permanent access).'
+      );
+    } else if (session.isDemo) {
       updatedEntitlement = {
         ...session.entitlement,
         checkedAt: new Date().toISOString(),

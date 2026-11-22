@@ -1,4 +1,4 @@
-export type AuthProvider = 'twitch' | 'patreon';
+export type AuthProvider = 'twitch' | 'patreon' | 'developer';
 
 export interface PublicAppConfig {
   appName: string;
@@ -14,6 +14,7 @@ export interface PublicAppConfig {
   twitchChannelUrl: string | null;
   patreonCreatorUrl: string | null;
   signingConfigured: boolean;
+  developerLoginConfigured: boolean;
 }
 
 export interface EntitlementResult {

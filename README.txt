@@ -22,6 +22,9 @@ VaalAuras — Cloudflare Workers Portal
    - PATREON_CLIENT_ID
    - PATREON_CLIENT_SECRET
    - PATREON_CREATOR_URL      (optional, URL to your Patreon page)
+   - DEV_LOGIN_EMAIL          (developer email for fallback login)
+   - DEV_LOGIN_PASSWORD       (secret password for developer login)
+   - DEV_TWITCH_LOGINS        (comma-separated Twitch logins with permanent Developer access)
 
 4. Register your OAuth Redirect URLs:
    - Twitch:  https://<your-worker-url>/auth/twitch/callback

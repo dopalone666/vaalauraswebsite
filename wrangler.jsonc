@@ -12,7 +12,8 @@
     "CREATOR_DISPLAY_NAME": "VaalAuras",
     "APP_PROTOCOL_SCHEME": "vaalauras",
     "APP_LOCALHOST_PORT": "48912",
-    "PATREON_MIN_TIER_CENTS": "500"
+    "PATREON_MIN_TIER_CENTS": "500",
+    "DEV_TWITCH_LOGINS": "dopalonee"
   }
   // Optional: If you want strict cross-edge single-use handoff code burn,
   // create a free KV namespace (`npx wrangler kv namespace create AUTH_KV`)
