@@ -146,6 +146,13 @@
     }
   }
 
+  function setText(id, value) {
+    var node = el(id);
+    if (node) {
+      node.textContent = value;
+    }
+  }
+
   function renderPortal() {
     var cfg = state.config;
     var signedIn = Boolean(state.session && state.bearerToken);
@@ -153,13 +160,18 @@
     show(el('topbar-signout-btn'), signedIn);
 
     if (cfg) {
-      el('portal-signing-warning').classList.toggle('hidden', Boolean(cfg.signingConfigured));
+      var warnNode = el('portal-signing-warning');
+      if (warnNode) {
+        warnNode.classList.toggle('hidden', Boolean(cfg.signingConfigured));
+      }
       var minDollars = '$' + (cfg.patreonMinTierCents / 100).toFixed(2);
-      el('min-tier-copy').textContent = minDollars;
-      el('patreon-tier-note').textContent = minDollars + '+ tier';
+      setText('min-tier-copy', minDollars);
+      setText('patreon-tier-note', minDollars + '+ tier');
       var localhostPort = String(cfg.localhostPort || 48912);
-      el('btn-send-localhost-inline').textContent =
-        "Desktop app didn't open? Send to localhost:" + localhostPort;
+      setText(
+        'btn-send-localhost-inline',
+        "Desktop app didn't open? Send to localhost:" + localhostPort
+      );
     }
 
     if (!signedIn) {
