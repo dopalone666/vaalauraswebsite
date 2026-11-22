@@ -26,6 +26,10 @@ VaalAuras — Cloudflare Workers Portal
    - DEV_LOGIN_PASSWORD       (secret password for developer login)
    - DEV_TWITCH_LOGINS        (comma-separated Twitch logins with permanent Developer access)
 
-4. Register your OAuth Redirect URLs:
+4. Optional (Required to save Guide & Changelog posts from the browser):
+   - In Cloudflare Dashboard -> Storage & Databases -> KV -> Create namespace.
+   - In your Worker -> Settings -> Bindings -> Add -> KV Namespace -> Variable name: CONTENT_KV.
+
+5. Register your OAuth Redirect URLs:
    - Twitch:  https://<your-worker-url>/auth/twitch/callback
    - Patreon: https://<your-worker-url>/auth/patreon/callback

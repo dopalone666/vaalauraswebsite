@@ -261,3 +261,286 @@ test('Twitch OAuth recognizes dopalonee as permanent Developer without requiring
     globalThis.fetch = originalFetch;
   }
 });
+
+function createMemoryKv() {
+  const map = new Map<string, string>();
+  return {
+    async get(key: string) {
+      return map.has(key) ? map.get(key)! : null;
+    },
+    async put(key: string, value: string) {
+      map.set(key, value);
+    },
+  };
+}
+
+async function loginAsDeveloper(env: WorkerEnv): Promise<string> {
+  const res = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/auth/developer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'dopalone@proton.me',
+        password: 'test-only-ephemeral-dev-pass',
+      }),
+    }),
+    env
+  );
+  assert.ok(res);
+  assert.equal(res.status, 200);
+  const json = (await res.json()) as { bearerToken: string };
+  return json.bearerToken;
+}
+
+test('GET /api/content/changelogs and /api/content/guides are publicly readable', async () => {
+  const env = makeBaseEnv();
+  const changelogRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/content/changelogs'),
+    env
+  );
+  assert.ok(changelogRes);
+  assert.equal(changelogRes.status, 200);
+  const changelogJson = (await changelogRes.json()) as {
+    posts: unknown[];
+    storageReady: boolean;
+  };
+  assert.ok(changelogJson.posts.length >= 1);
+  assert.equal(changelogJson.storageReady, false);
+
+  const guideRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/content/guides'),
+    env
+  );
+  assert.ok(guideRes);
+  assert.equal(guideRes.status, 200);
+  const guideJson = (await guideRes.json()) as {
+    articles: unknown[];
+    storageReady: boolean;
+  };
+  assert.ok(guideJson.articles.length >= 1);
+  assert.equal(guideJson.storageReady, false);
+});
+
+test('Guide & Changelog mutations reject unauthenticated (401) and non-developer (403) callers', async () => {
+  const env = makeBaseEnv({ CONTENT_KV: createMemoryKv() });
+
+  const unauthRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/content/changelogs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version: 'v1.1.0', body: '## Core\n- Update' }),
+    }),
+    env
+  );
+  assert.ok(unauthRes);
+  assert.equal(unauthRes.status, 401);
+
+  // Regular Twitch subscriber session must receive 403
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith('https://id.twitch.tv/oauth2/token')) {
+      return new Response(JSON.stringify({ access_token: 'sub-token' }), { status: 200 });
+    }
+    if (url.startsWith('https://api.twitch.tv/helix/users')) {
+      return new Response(
+        JSON.stringify({ data: [{ id: '888', login: 'regularsub', display_name: 'RegularSub' }] }),
+        { status: 200 }
+      );
+    }
+    if (url.startsWith('https://api.twitch.tv/helix/subscriptions/user')) {
+      return new Response(
+        JSON.stringify({ data: [{ broadcaster_id: '99999999', tier: '1000', is_gift: false }] }),
+        { status: 200 }
+      );
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const urlRes = await handleApiOrAuthRequest(
+      new Request('https://vaalauras.example.workers.dev/api/auth/twitch/url'),
+      env
+    );
+    const { url } = (await urlRes!.json()) as { url: string };
+    const stateToken = new URL(url).searchParams.get('state')!;
+    const cbRes = await handleApiOrAuthRequest(
+      new Request(
+        `https://vaalauras.example.workers.dev/auth/twitch/callback?code=c&state=${encodeURIComponent(stateToken)}`
+      ),
+      env
+    );
+    const html = await cbRes!.text();
+    const authCode = html.match(/"authCode":"([^"]+)"/)![1];
+    const claimRes = await handleApiOrAuthRequest(
+      new Request('https://vaalauras.example.workers.dev/api/auth/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ authCode }),
+      }),
+      env
+    );
+    const { bearerToken: subToken } = (await claimRes!.json()) as { bearerToken: string };
+
+    const forbiddenGuideRes = await handleApiOrAuthRequest(
+      new Request('https://vaalauras.example.workers.dev/api/content/guides', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${subToken}`,
+        },
+        body: JSON.stringify({ title: 'Unauthorized', body: 'Should fail' }),
+      }),
+      env
+    );
+    assert.ok(forbiddenGuideRes);
+    assert.equal(forbiddenGuideRes.status, 403);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Developer mutations return 503 when CONTENT_KV is unbound and persist CRUD when KV is bound', async () => {
+  const unboundEnv = makeBaseEnv();
+  const unboundDevToken = await loginAsDeveloper(unboundEnv);
+  const missingKvRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/content/changelogs', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${unboundDevToken}`,
+      },
+      body: JSON.stringify({ version: 'v1.1.0', body: '## Core\n- Item' }),
+    }),
+    unboundEnv
+  );
+  assert.ok(missingKvRes);
+  assert.equal(missingKvRes.status, 503);
+
+  const env = makeBaseEnv({ CONTENT_KV: createMemoryKv() });
+  const devToken = await loginAsDeveloper(env);
+
+  // Changelog POST -> PUT -> DELETE
+  const createPostRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/content/changelogs', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${devToken}`,
+      },
+      body: JSON.stringify({
+        version: 'v1.1.0',
+        category: 'Core',
+        publishedAt: '23 November 2026',
+        summary: 'Performance polish.',
+        body: '## Overlays\n- Faster frame timing.',
+      }),
+    }),
+    env
+  );
+  assert.ok(createPostRes);
+  assert.equal(createPostRes.status, 201);
+  const createdPost = (await createPostRes.json()) as { post: { id: string; version: string } };
+  assert.equal(createdPost.post.version, 'v1.1.0');
+
+  const updatePostRes = await handleApiOrAuthRequest(
+    new Request(
+      `https://vaalauras.example.workers.dev/api/content/changelogs/${createdPost.post.id}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${devToken}`,
+        },
+        body: JSON.stringify({
+          version: 'v1.1.1',
+          category: 'Hotfix',
+          publishedAt: '23 November 2026',
+          summary: 'Updated notes.',
+          body: '## Hotfix\n- Fixed crash.',
+        }),
+      }
+    ),
+    env
+  );
+  assert.ok(updatePostRes);
+  assert.equal(updatePostRes.status, 200);
+  const updatedPost = (await updatePostRes.json()) as { post: { version: string; category: string } };
+  assert.equal(updatedPost.post.version, 'v1.1.1');
+  assert.equal(updatedPost.post.category, 'Hotfix');
+
+  const delPostRes = await handleApiOrAuthRequest(
+    new Request(
+      `https://vaalauras.example.workers.dev/api/content/changelogs/${createdPost.post.id}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${devToken}` },
+      }
+    ),
+    env
+  );
+  assert.ok(delPostRes);
+  assert.equal(delPostRes.status, 200);
+
+  // Guide POST -> PUT -> DELETE
+  const createGuideRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/content/guides', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${devToken}`,
+      },
+      body: JSON.stringify({
+        title: 'Custom Sound Alerts',
+        topic: 'Overlays',
+        summary: 'How to wire custom audio cues.',
+        youtubeUrl: 'https://youtu.be/dQw4w9WgXcQ',
+        body: '## Setup\n- Pick a wav file.',
+      }),
+    }),
+    env
+  );
+  assert.ok(createGuideRes);
+  assert.equal(createGuideRes.status, 201);
+  const createdGuide = (await createGuideRes.json()) as {
+    article: { id: string; youtubeUrl: string | null };
+  };
+  assert.equal(createdGuide.article.youtubeUrl, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+
+  const updateGuideRes = await handleApiOrAuthRequest(
+    new Request(`https://vaalauras.example.workers.dev/api/content/guides/${createdGuide.article.id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${devToken}`,
+      },
+      body: JSON.stringify({
+        title: 'Custom Sound Alerts v2',
+        topic: 'Audio',
+        summary: 'Updated summary.',
+        youtubeUrl: 'https://www.youtube.com/watch?v=abc123XYZ_9',
+        body: '## Setup\n- Pick an ogg or wav file.',
+      }),
+    }),
+    env
+  );
+  assert.ok(updateGuideRes);
+  assert.equal(updateGuideRes.status, 200);
+  const updatedGuide = (await updateGuideRes.json()) as {
+    article: { title: string; topic: string; youtubeUrl: string };
+  };
+  assert.equal(updatedGuide.article.title, 'Custom Sound Alerts v2');
+  assert.equal(updatedGuide.article.topic, 'Audio');
+  assert.equal(updatedGuide.article.youtubeUrl, 'https://www.youtube.com/watch?v=abc123XYZ_9');
+
+  const delGuideRes = await handleApiOrAuthRequest(
+    new Request(`https://vaalauras.example.workers.dev/api/content/guides/${createdGuide.article.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${devToken}` },
+    }),
+    env
+  );
+  assert.ok(delGuideRes);
+  assert.equal(delGuideRes.status, 200);
+});
+

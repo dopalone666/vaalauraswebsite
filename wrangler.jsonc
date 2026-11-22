@@ -15,11 +15,11 @@
     "PATREON_MIN_TIER_CENTS": "500",
     "DEV_TWITCH_LOGINS": "dopalonee"
   }
-  // Optional: If you want strict cross-edge single-use handoff code burn,
-  // create a free KV namespace (`npx wrangler kv namespace create AUTH_KV`)
-  // and uncomment:
+  // Required to persist Guide & Changelog posts edited in the browser on Cloudflare:
+  // Create a free KV namespace (`npx wrangler kv namespace create CONTENT_KV` or via Dashboard),
+  // bind it in Worker Settings -> Bindings (or uncomment below):
   // ,
   // "kv_namespaces": [
-  //   { "binding": "AUTH_KV", "id": "YOUR_KV_NAMESPACE_ID" }
+  //   { "binding": "CONTENT_KV", "id": "YOUR_KV_NAMESPACE_ID" }
   // ]
 }

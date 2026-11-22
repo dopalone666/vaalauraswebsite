@@ -15,6 +15,7 @@ export interface PublicAppConfig {
   patreonCreatorUrl: string | null;
   signingConfigured: boolean;
   developerLoginConfigured: boolean;
+  kvConfigured: boolean;
 }
 
 export interface EntitlementResult {
@@ -49,4 +50,27 @@ export interface LicenseHandoffPayload {
   localhostCallbackUrl: string;
   expiresAt: string;
   codeExpiresAt: string;
+}
+
+export interface ChangelogPost {
+  id: string;
+  version: string;
+  category: string;
+  publishedAt: string;
+  summary: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GuideArticle {
+  id: string;
+  slug: string;
+  title: string;
+  topic: string;
+  summary: string;
+  youtubeUrl: string | null;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
 }

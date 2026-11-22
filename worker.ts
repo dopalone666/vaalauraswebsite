@@ -1,4 +1,11 @@
 import {
+  DEFAULT_CHANGELOG_POSTS,
+  DEFAULT_GUIDE_ARTICLES,
+  slugifyTitle,
+  validateChangelogInput,
+  validateGuideInput,
+} from './src/lib/content';
+import {
   buildDeveloperEntitlement,
   evaluatePatreonMembership,
   evaluateTwitchSubscription,
@@ -18,7 +25,9 @@ import {
 } from './src/lib/webTokens';
 import type {
   AuthProvider,
+  ChangelogPost,
   EntitlementResult,
+  GuideArticle,
   PublicAppConfig,
   VerifiedUser,
 } from './src/types';
@@ -54,6 +63,7 @@ export interface WorkerEnv {
   SESSION_SIGNING_SECRET?: string;
   ASSETS?: AssetsBindingLike;
   AUTH_KV?: KVNamespaceLike;
+  CONTENT_KV?: KVNamespaceLike;
 }
 
 interface SealedOAuthState extends Record<string, unknown> {
@@ -209,6 +219,7 @@ function getPublicConfig(request: Request, env: WorkerEnv): PublicAppConfig {
         ? patreon.creatorUrl
         : null,
     signingConfigured,
+    kvConfigured: Boolean(env.CONTENT_KV || env.AUTH_KV),
   };
 }
 
@@ -586,6 +597,79 @@ async function safeParseJsonBody(request: Request): Promise<Record<string, unkno
     return data as Record<string, unknown>;
   } catch {
     return null;
+  }
+}
+
+const CHANGELOG_KV_KEY = 'content:changelogs:v1';
+const GUIDE_KV_KEY = 'content:guides:v1';
+const MAX_CONTENT_ITEMS = 100;
+
+function getContentKv(env: WorkerEnv): KVNamespaceLike | null {
+  return env.CONTENT_KV || env.AUTH_KV || null;
+}
+
+function isDeveloperSession(session: SealedSessionPayload): boolean {
+  return (
+    session.entitlement.active === true &&
+    (session.user.provider === 'developer' ||
+      session.entitlement.tierCode === 'developer')
+  );
+}
+
+async function requireDeveloperAuth(
+  request: Request,
+  env: WorkerEnv
+): Promise<{ ok: true } | { ok: false; response: Response }> {
+  const auth = await readBearerSession(request, env);
+  if (!auth) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: 'Developer sign-in required.' }, 401),
+    };
+  }
+  if (!isDeveloperSession(auth.session)) {
+    return {
+      ok: false,
+      response: jsonResponse(
+        { error: 'Only the developer account can edit Guide or Changelog posts.' },
+        403
+      ),
+    };
+  }
+  return { ok: true };
+}
+
+async function loadChangelogPosts(env: WorkerEnv): Promise<ChangelogPost[]> {
+  const kv = getContentKv(env);
+  if (!kv) {
+    return DEFAULT_CHANGELOG_POSTS;
+  }
+  try {
+    const raw = await kv.get(CHANGELOG_KV_KEY);
+    if (!raw) {
+      return DEFAULT_CHANGELOG_POSTS;
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as ChangelogPost[]) : DEFAULT_CHANGELOG_POSTS;
+  } catch {
+    return DEFAULT_CHANGELOG_POSTS;
+  }
+}
+
+async function loadGuideArticles(env: WorkerEnv): Promise<GuideArticle[]> {
+  const kv = getContentKv(env);
+  if (!kv) {
+    return DEFAULT_GUIDE_ARTICLES;
+  }
+  try {
+    const raw = await kv.get(GUIDE_KV_KEY);
+    if (!raw) {
+      return DEFAULT_GUIDE_ARTICLES;
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as GuideArticle[]) : DEFAULT_GUIDE_ARTICLES;
+  } catch {
+    return DEFAULT_GUIDE_ARTICLES;
   }
 }
 
@@ -1251,6 +1335,225 @@ export async function handleApiOrAuthRequest(
       return jsonResponse({ valid: false, error: result.error }, 401);
     }
     return jsonResponse({ valid: true, claims: result.claims });
+  }
+
+  // 14. Public Read + Developer CRUD for Changelog Posts
+  if (method === 'GET' && pathname === '/api/content/changelogs') {
+    const posts = await loadChangelogPosts(env);
+    return jsonResponse({ posts, storageReady: Boolean(getContentKv(env)) });
+  }
+
+  if (method === 'POST' && pathname === '/api/content/changelogs') {
+    const guard = await requireDeveloperAuth(request, env);
+    if (!guard.ok) return guard.response;
+
+    const kv = getContentKv(env);
+    if (!kv) {
+      return jsonResponse(
+        {
+          error:
+            'Cloudflare KV storage is not bound yet. Bind a KV namespace named CONTENT_KV in Cloudflare Worker Settings -> Bindings.',
+        },
+        503
+      );
+    }
+
+    const validated = validateChangelogInput(await safeParseJsonBody(request));
+    if (!validated.ok) {
+      return jsonResponse({ error: validated.error }, 400);
+    }
+
+    const existing = await loadChangelogPosts(env);
+    if (existing.length >= MAX_CONTENT_ITEMS) {
+      return jsonResponse({ error: 'Maximum number of changelog posts reached.' }, 400);
+    }
+
+    const nowIso = new Date().toISOString();
+    const post: ChangelogPost = {
+      id: `rel-${randomHex(8)}`,
+      ...validated.data,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    const nextPosts = [post, ...existing];
+    await kv.put(CHANGELOG_KV_KEY, JSON.stringify(nextPosts));
+    return jsonResponse({ post, posts: nextPosts }, 201);
+  }
+
+  const changelogIdMatch = pathname.match(/^\/api\/content\/changelogs\/([a-zA-Z0-9_-]{1,64})$/);
+  if (changelogIdMatch) {
+    const targetId = changelogIdMatch[1];
+
+    if (method === 'PUT') {
+      const guard = await requireDeveloperAuth(request, env);
+      if (!guard.ok) return guard.response;
+
+      const kv = getContentKv(env);
+      if (!kv) {
+        return jsonResponse(
+          {
+            error:
+              'Cloudflare KV storage is not bound yet. Bind a KV namespace named CONTENT_KV in Cloudflare Worker Settings -> Bindings.',
+          },
+          503
+        );
+      }
+
+      const validated = validateChangelogInput(await safeParseJsonBody(request));
+      if (!validated.ok) {
+        return jsonResponse({ error: validated.error }, 400);
+      }
+
+      const existing = await loadChangelogPosts(env);
+      const idx = existing.findIndex((p) => p.id === targetId);
+      if (idx === -1) {
+        return jsonResponse({ error: 'Changelog post not found.' }, 404);
+      }
+
+      const updated: ChangelogPost = {
+        ...existing[idx],
+        ...validated.data,
+        updatedAt: new Date().toISOString(),
+      };
+      const nextPosts = existing.map((p, i) => (i === idx ? updated : p));
+      await kv.put(CHANGELOG_KV_KEY, JSON.stringify(nextPosts));
+      return jsonResponse({ post: updated, posts: nextPosts });
+    }
+
+    if (method === 'DELETE') {
+      const guard = await requireDeveloperAuth(request, env);
+      if (!guard.ok) return guard.response;
+
+      const kv = getContentKv(env);
+      if (!kv) {
+        return jsonResponse(
+          {
+            error:
+              'Cloudflare KV storage is not bound yet. Bind a KV namespace named CONTENT_KV in Cloudflare Worker Settings -> Bindings.',
+          },
+          503
+        );
+      }
+
+      const existing = await loadChangelogPosts(env);
+      const nextPosts = existing.filter((p) => p.id !== targetId);
+      if (nextPosts.length === existing.length) {
+        return jsonResponse({ error: 'Changelog post not found.' }, 404);
+      }
+
+      await kv.put(CHANGELOG_KV_KEY, JSON.stringify(nextPosts));
+      return jsonResponse({ ok: true, posts: nextPosts });
+    }
+  }
+
+  // 15. Public Read + Developer CRUD for Guide Articles
+  if (method === 'GET' && pathname === '/api/content/guides') {
+    const articles = await loadGuideArticles(env);
+    return jsonResponse({ articles, storageReady: Boolean(getContentKv(env)) });
+  }
+
+  if (method === 'POST' && pathname === '/api/content/guides') {
+    const guard = await requireDeveloperAuth(request, env);
+    if (!guard.ok) return guard.response;
+
+    const kv = getContentKv(env);
+    if (!kv) {
+      return jsonResponse(
+        {
+          error:
+            'Cloudflare KV storage is not bound yet. Bind a KV namespace named CONTENT_KV in Cloudflare Worker Settings -> Bindings.',
+        },
+        503
+      );
+    }
+
+    const validated = validateGuideInput(await safeParseJsonBody(request));
+    if (!validated.ok) {
+      return jsonResponse({ error: validated.error }, 400);
+    }
+
+    const existing = await loadGuideArticles(env);
+    if (existing.length >= MAX_CONTENT_ITEMS) {
+      return jsonResponse({ error: 'Maximum number of guide articles reached.' }, 400);
+    }
+
+    const nowIso = new Date().toISOString();
+    const article: GuideArticle = {
+      id: `guide-${randomHex(8)}`,
+      slug: `${slugifyTitle(validated.data.title)}-${randomHex(3)}`,
+      ...validated.data,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    const nextArticles = [...existing, article];
+    await kv.put(GUIDE_KV_KEY, JSON.stringify(nextArticles));
+    return jsonResponse({ article, articles: nextArticles }, 201);
+  }
+
+  const guideIdMatch = pathname.match(/^\/api\/content\/guides\/([a-zA-Z0-9_-]{1,64})$/);
+  if (guideIdMatch) {
+    const targetId = guideIdMatch[1];
+
+    if (method === 'PUT') {
+      const guard = await requireDeveloperAuth(request, env);
+      if (!guard.ok) return guard.response;
+
+      const kv = getContentKv(env);
+      if (!kv) {
+        return jsonResponse(
+          {
+            error:
+              'Cloudflare KV storage is not bound yet. Bind a KV namespace named CONTENT_KV in Cloudflare Worker Settings -> Bindings.',
+          },
+          503
+        );
+      }
+
+      const validated = validateGuideInput(await safeParseJsonBody(request));
+      if (!validated.ok) {
+        return jsonResponse({ error: validated.error }, 400);
+      }
+
+      const existing = await loadGuideArticles(env);
+      const idx = existing.findIndex((a) => a.id === targetId);
+      if (idx === -1) {
+        return jsonResponse({ error: 'Guide article not found.' }, 404);
+      }
+
+      const updated: GuideArticle = {
+        ...existing[idx],
+        ...validated.data,
+        updatedAt: new Date().toISOString(),
+      };
+      const nextArticles = existing.map((a, i) => (i === idx ? updated : a));
+      await kv.put(GUIDE_KV_KEY, JSON.stringify(nextArticles));
+      return jsonResponse({ article: updated, articles: nextArticles });
+    }
+
+    if (method === 'DELETE') {
+      const guard = await requireDeveloperAuth(request, env);
+      if (!guard.ok) return guard.response;
+
+      const kv = getContentKv(env);
+      if (!kv) {
+        return jsonResponse(
+          {
+            error:
+              'Cloudflare KV storage is not bound yet. Bind a KV namespace named CONTENT_KV in Cloudflare Worker Settings -> Bindings.',
+          },
+          503
+        );
+      }
+
+      const existing = await loadGuideArticles(env);
+      const nextArticles = existing.filter((a) => a.id !== targetId);
+      if (nextArticles.length === existing.length) {
+        return jsonResponse({ error: 'Guide article not found.' }, 404);
+      }
+
+      await kv.put(GUIDE_KV_KEY, JSON.stringify(nextArticles));
+      return jsonResponse({ ok: true, articles: nextArticles });
+    }
   }
 
   return null;
