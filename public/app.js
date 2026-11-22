@@ -1,11 +1,15 @@
 (function () {
   'use strict';
 
+  var SESSION_MAX_MS = 24 * 60 * 60 * 1000;
+
   var state = {
     activeView: 'access',
     config: null,
     bearerToken: null,
     session: null,
+    sessionExpiresAt: null,
+    logoutTimerId: null,
     handoff: null,
     devFormOpen: false,
     popupWindow: null,
@@ -183,7 +187,13 @@
 
   async function apiJson(path, options) {
     var opts = options || {};
-    var headers = Object.assign({}, opts.headers || {});
+    var hadBearer = Boolean(state.bearerToken);
+    var headers = Object.assign(
+      {
+        'X-Requested-With': 'VaalAuras',
+      },
+      opts.headers || {}
+    );
     if (state.bearerToken) {
       headers.Authorization = 'Bearer ' + state.bearerToken;
     }
@@ -193,6 +203,7 @@
     var resp = await fetch(path, {
       method: opts.method || 'GET',
       headers: headers,
+      credentials: 'same-origin',
       body: opts.body,
     });
     var data = null;
@@ -200,6 +211,9 @@
       data = await resp.json();
     } catch (_) {
       data = null;
+    }
+    if (resp.status === 401 && hadBearer && !opts.skipAutoExpire) {
+      await expireSessionClient(false);
     }
     if (!resp.ok) {
       var msg = (data && data.error) || 'Request failed (' + resp.status + ').';
@@ -1036,6 +1050,86 @@
     }
   }
 
+  function clearAutoLogoutTimer() {
+    if (state.logoutTimerId !== null) {
+      clearTimeout(state.logoutTimerId);
+      state.logoutTimerId = null;
+    }
+  }
+
+  function applySessionPayload(data) {
+    state.bearerToken = data.bearerToken || state.bearerToken;
+    state.session = {
+      user: data.user,
+      entitlement: data.entitlement,
+    };
+    var parsedExp = data.expiresAt ? Date.parse(data.expiresAt) : NaN;
+    state.sessionExpiresAt = Number.isFinite(parsedExp) ? parsedExp : Date.now() + SESSION_MAX_MS;
+    state.handoff = null;
+    scheduleAutoLogout();
+  }
+
+  function scheduleAutoLogout() {
+    clearAutoLogoutTimer();
+    if (!state.bearerToken || !state.sessionExpiresAt) {
+      return;
+    }
+    var remainingMs = state.sessionExpiresAt - Date.now();
+    if (remainingMs <= 0) {
+      void expireSessionClient(true);
+      return;
+    }
+    var delay = Math.min(remainingMs, 2147483647);
+    state.logoutTimerId = setTimeout(checkSessionExpiry, delay);
+  }
+
+  function checkSessionExpiry() {
+    if (!state.bearerToken || !state.sessionExpiresAt) {
+      return;
+    }
+    if (Date.now() >= state.sessionExpiresAt) {
+      void expireSessionClient(true);
+    } else {
+      scheduleAutoLogout();
+    }
+  }
+
+  async function expireSessionClient(notifyServer) {
+    clearAutoLogoutTimer();
+    var wasSignedIn = Boolean(state.bearerToken || state.session);
+    state.bearerToken = null;
+    state.session = null;
+    state.sessionExpiresAt = null;
+    state.handoff = null;
+    closeGuideEditor();
+    closeChangelogEditor();
+    renderPortal();
+
+    if (notifyServer) {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'X-Requested-With': 'VaalAuras' },
+        });
+      } catch (_) {}
+    }
+    if (wasSignedIn) {
+      setBanner('Your 24-hour session has expired. Please sign in again.', 'warn');
+    }
+  }
+
+  async function restoreSession() {
+    try {
+      var data = await apiJson('/api/auth/session', { skipAutoExpire: true });
+      if (data && data.authenticated && data.bearerToken && data.user && data.entitlement) {
+        applySessionPayload(data);
+      }
+    } catch (_) {
+      // Not signed in or 24-hour session expired
+    }
+  }
+
   async function claimAuthCode(authCode) {
     setBanner('');
     try {
@@ -1043,12 +1137,7 @@
         method: 'POST',
         body: JSON.stringify({ authCode: authCode }),
       });
-      state.bearerToken = data.bearerToken;
-      state.session = {
-        user: data.user,
-        entitlement: data.entitlement,
-      };
-      state.handoff = null;
+      applySessionPayload(data);
       renderPortal();
     } catch (err) {
       setBanner(err.message || 'Could not verify login handoff.', 'error');
@@ -1078,13 +1167,9 @@
       var data = await apiJson('/api/auth/developer', {
         method: 'POST',
         body: JSON.stringify({ email: email, password: password }),
+        skipAutoExpire: true,
       });
-      state.bearerToken = data.bearerToken;
-      state.session = {
-        user: data.user,
-        entitlement: data.entitlement,
-      };
-      state.handoff = null;
+      applySessionPayload(data);
       el('dev-password').value = '';
       toggleDevForm(false);
       renderPortal();
@@ -1102,14 +1187,7 @@
     setBanner('');
     try {
       var data = await apiJson('/api/auth/recheck', { method: 'POST' });
-      if (data.bearerToken) {
-        state.bearerToken = data.bearerToken;
-      }
-      state.session = {
-        user: data.user,
-        entitlement: data.entitlement,
-      };
-      state.handoff = null;
+      applySessionPayload(data);
       renderPortal();
       setBanner('Membership status refreshed.', 'info');
     } catch (err) {
@@ -1120,13 +1198,20 @@
   async function signOut() {
     setBanner('');
     setDevError('');
+    clearAutoLogoutTimer();
     try {
-      if (state.bearerToken) {
-        await apiJson('/api/auth/logout', { method: 'POST' });
-      }
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: Object.assign(
+          { 'X-Requested-With': 'VaalAuras' },
+          state.bearerToken ? { Authorization: 'Bearer ' + state.bearerToken } : {}
+        ),
+      });
     } catch (_) {}
     state.bearerToken = null;
     state.session = null;
+    state.sessionExpiresAt = null;
     state.handoff = null;
     closeGuideEditor();
     closeChangelogEditor();
@@ -1260,6 +1345,13 @@
         setBanner(data.error || 'OAuth login failed.', 'error');
       }
     });
+
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) {
+        checkSessionExpiry();
+      }
+    });
+    window.addEventListener('focus', checkSessionExpiry);
   }
 
   async function init() {
@@ -1270,8 +1362,16 @@
       state.activeView = hash;
     }
 
+    var params = new URLSearchParams(window.location.search);
+    var authCode = params.get('authCode');
+    var authError = params.get('authError');
+
     try {
-      var initial = await Promise.all([apiJson('/api/config'), loadContent()]);
+      var tasks = [apiJson('/api/config'), loadContent()];
+      if (!authCode) {
+        tasks.push(restoreSession());
+      }
+      var initial = await Promise.all(tasks);
       state.config = initial[0];
     } catch (err) {
       setBanner('Could not load portal configuration: ' + err.message, 'error');
@@ -1280,9 +1380,6 @@
     renderPortal();
     switchView(state.activeView, false);
 
-    var params = new URLSearchParams(window.location.search);
-    var authCode = params.get('authCode');
-    var authError = params.get('authError');
     if (authCode || authError) {
       window.history.replaceState({}, '', window.location.pathname);
       switchView('access', false);
