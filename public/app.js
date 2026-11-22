@@ -185,12 +185,21 @@
     return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
   }
 
+  function isEmbeddedFrame() {
+    try {
+      return window.self !== window.top;
+    } catch (_) {
+      return true;
+    }
+  }
+
   async function apiJson(path, options) {
     var opts = options || {};
     var hadBearer = Boolean(state.bearerToken);
     var headers = Object.assign(
       {
         'X-Requested-With': 'VaalAuras',
+        'X-Embedded-Frame': isEmbeddedFrame() ? '1' : '0',
       },
       opts.headers || {}
     );
@@ -1063,8 +1072,12 @@
       user: data.user,
       entitlement: data.entitlement,
     };
-    var parsedExp = data.expiresAt ? Date.parse(data.expiresAt) : NaN;
-    state.sessionExpiresAt = Number.isFinite(parsedExp) ? parsedExp : Date.now() + SESSION_MAX_MS;
+    if (typeof data.expiresInSeconds === 'number' && data.expiresInSeconds > 0) {
+      state.sessionExpiresAt = Date.now() + data.expiresInSeconds * 1000;
+    } else {
+      var parsedExp = data.expiresAt ? Date.parse(data.expiresAt) : NaN;
+      state.sessionExpiresAt = Number.isFinite(parsedExp) ? parsedExp : Date.now() + SESSION_MAX_MS;
+    }
     state.handoff = null;
     scheduleAutoLogout();
   }

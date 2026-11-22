@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { handleApiOrAuthRequest, type WorkerEnv } from '../../worker';
-import { openPayloadWeb } from './webTokens';
+import { openPayloadWeb, sealPayloadWeb } from './webTokens';
 
 const TEST_SIGNING_SECRET = '0123456789abcdef0123456789abcdef';
 
@@ -543,4 +543,182 @@ test('Developer mutations return 503 when CONTENT_KV is unbound and persist CRUD
   assert.ok(delGuideRes);
   assert.equal(delGuideRes.status, 200);
 });
+
+test('Login sets 24-hour HttpOnly session cookie, restores session on reload, protects mutations against CSRF, and logs out cleanly', async () => {
+  const env = makeBaseEnv();
+  const beforeSec = Math.floor(Date.now() / 1000);
+
+  const loginRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/auth/developer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'dopalone@proton.me',
+        password: 'test-only-ephemeral-dev-pass',
+      }),
+    }),
+    env
+  );
+  assert.ok(loginRes);
+  assert.equal(loginRes.status, 200);
+
+  const setCookieHeader = loginRes.headers.get('set-cookie') || '';
+  assert.match(setCookieHeader, /vaal_session=/);
+  assert.match(setCookieHeader, /Max-Age=86400/);
+  assert.match(setCookieHeader, /Expires=/);
+  assert.match(setCookieHeader, /HttpOnly/);
+  assert.match(setCookieHeader, /Secure/);
+  assert.match(setCookieHeader, /SameSite=Lax/);
+
+  const cookiePair = setCookieHeader.split(';')[0];
+  const loginJson = (await loginRes.json()) as { expiresAt: string; expiresInSeconds: number };
+  assert.equal(loginJson.expiresInSeconds, 86400);
+  const expSec = Math.floor(Date.parse(loginJson.expiresAt) / 1000);
+  assert.ok(expSec >= beforeSec + 86390 && expSec <= beforeSec + 86410);
+
+  // Embedded iframe requests receive SameSite=None; Partitioned for preview compatibility
+  const embeddedLoginRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/auth/developer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Embedded-Frame': '1' },
+      body: JSON.stringify({
+        email: 'dopalone@proton.me',
+        password: 'test-only-ephemeral-dev-pass',
+      }),
+    }),
+    env
+  );
+  assert.ok(embeddedLoginRes);
+  const embeddedCookie = embeddedLoginRes.headers.get('set-cookie') || '';
+  assert.match(embeddedCookie, /SameSite=None/);
+  assert.match(embeddedCookie, /Partitioned/);
+
+  // Page reload hydrates session from HttpOnly cookie
+  const sessionRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/auth/session', {
+      headers: { Cookie: cookiePair },
+    }),
+    env
+  );
+  assert.ok(sessionRes);
+  assert.equal(sessionRes.status, 200);
+  const sessionJson = (await sessionRes.json()) as {
+    bearerToken: string;
+    user: { provider: string };
+    expiresAt: string;
+  };
+  assert.equal(sessionJson.user.provider, 'developer');
+  assert.ok(sessionJson.bearerToken.length > 20);
+  assert.equal(sessionJson.expiresAt, loginJson.expiresAt);
+
+  // Cookie-only POST without X-Requested-With or matching Origin is rejected (CSRF guard)
+  const csrfBlockedRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/auth/recheck', {
+      method: 'POST',
+      headers: { Cookie: cookiePair },
+    }),
+    env
+  );
+  assert.ok(csrfBlockedRes);
+  assert.equal(csrfBlockedRes.status, 401);
+
+  // Cookie POST with X-Requested-With preserves original 24-hour login window
+  const recheckRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/auth/recheck', {
+      method: 'POST',
+      headers: { Cookie: cookiePair, 'X-Requested-With': 'VaalAuras' },
+    }),
+    env
+  );
+  assert.ok(recheckRes);
+  assert.equal(recheckRes.status, 200);
+  const recheckJson = (await recheckRes.json()) as { expiresAt: string };
+  assert.equal(recheckJson.expiresAt, loginJson.expiresAt);
+
+  // Logout revokes token & clears vaal_session cookie
+  const logoutRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/auth/logout', {
+      method: 'POST',
+      headers: { Cookie: cookiePair, 'X-Requested-With': 'VaalAuras' },
+    }),
+    env
+  );
+  assert.ok(logoutRes);
+  assert.equal(logoutRes.status, 200);
+  const logoutCookies = logoutRes.headers.getSetCookie
+    ? logoutRes.headers.getSetCookie().join(' | ')
+    : logoutRes.headers.get('set-cookie') || '';
+  assert.match(logoutCookies, /vaal_session=;.*Max-Age=0/);
+
+  // Subsequent session check reports authenticated: false and clears stale cookie
+  const afterLogoutRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/auth/session', {
+      headers: { Cookie: cookiePair },
+    }),
+    env
+  );
+  assert.ok(afterLogoutRes);
+  assert.equal(afterLogoutRes.status, 200);
+  const afterLogoutJson = (await afterLogoutRes.json()) as { authenticated: boolean };
+  assert.equal(afterLogoutJson.authenticated, false);
+  assert.match(afterLogoutRes.headers.get('set-cookie') || '', /vaal_session=;.*Max-Age=0/);
+});
+
+test('Expired session (>24h old) is rejected and clears vaal_session cookie', async () => {
+  const env = makeBaseEnv();
+  const pastSec = Math.floor(Date.now() / 1000) - 90000; // 25 hours ago
+  const expiredToken = await sealPayloadWeb(
+    {
+      user: {
+        id: 'dev:dopalone',
+        provider: 'developer',
+        username: 'dopalone',
+        displayName: 'Developer',
+        avatarUrl: null,
+      },
+      entitlement: {
+        active: true,
+        provider: 'developer',
+        tierCode: 'developer',
+        tierLabel: 'Developer',
+        reason: 'Developer account verified.',
+        checkedAt: new Date(pastSec * 1000).toISOString(),
+      },
+      providerAccessToken: null,
+      isDemo: false,
+      sessionExpiresAt: pastSec + 86400,
+    },
+    TEST_SIGNING_SECRET,
+    'session',
+    86400,
+    pastSec
+  );
+
+  const res = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/auth/session', {
+      headers: { Cookie: `vaal_session=${encodeURIComponent(expiredToken)}` },
+    }),
+    env
+  );
+  assert.ok(res);
+  assert.equal(res.status, 200);
+  const resJson = (await res.json()) as { authenticated: boolean };
+  assert.equal(resJson.authenticated, false);
+  assert.match(res.headers.get('set-cookie') || '', /vaal_session=;.*Max-Age=0/);
+
+  // Protected routes strictly reject the expired session with 401
+  const protectedRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/license/issue', {
+      method: 'POST',
+      headers: {
+        Cookie: `vaal_session=${encodeURIComponent(expiredToken)}`,
+        'X-Requested-With': 'VaalAuras',
+      },
+    }),
+    env
+  );
+  assert.ok(protectedRes);
+  assert.equal(protectedRes.status, 401);
+});
+
 
