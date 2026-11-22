@@ -195,20 +195,21 @@
       el('denied-reason').textContent = ent.reason;
       el('denied-checked-at').textContent = checkedLabel;
 
+      var linksWrap = el('denied-subscribe-links');
       var twLink = el('link-subscribe-twitch');
       var patLink = el('link-subscribe-patreon');
-      if (cfg && cfg.twitchChannelUrl) {
-        twLink.href = cfg.twitchChannelUrl;
-        show(twLink, true);
-      } else {
-        show(twLink, false);
+      var showTwitch = Boolean(user.provider === 'twitch' && cfg && cfg.twitchChannelUrl);
+      var showPatreon = Boolean(user.provider === 'patreon' && cfg && cfg.patreonCreatorUrl);
+
+      if (twLink) {
+        if (showTwitch) twLink.href = cfg.twitchChannelUrl;
+        show(twLink, showTwitch);
       }
-      if (cfg && cfg.patreonCreatorUrl) {
-        patLink.href = cfg.patreonCreatorUrl;
-        show(patLink, true);
-      } else {
-        show(patLink, false);
+      if (patLink) {
+        if (showPatreon) patLink.href = cfg.patreonCreatorUrl;
+        show(patLink, showPatreon);
       }
+      show(linksWrap, showTwitch || showPatreon);
     }
   }
 
