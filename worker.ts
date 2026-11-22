@@ -78,11 +78,15 @@ interface SealedClaimPayload extends Record<string, unknown> {
   isDemo: boolean;
 }
 
+const SESSION_TTL_SECONDS = 24 * 60 * 60;
+const SESSION_COOKIE_NAME = 'vaal_session';
+
 interface SealedSessionPayload extends Record<string, unknown> {
   user: VerifiedUser;
   entitlement: EntitlementResult;
   providerAccessToken: string | null;
   isDemo: boolean;
+  sessionExpiresAt?: number;
 }
 
 interface SealedHandoffPayload extends Record<string, unknown> {
@@ -226,15 +230,22 @@ function getPublicConfig(request: Request, env: WorkerEnv): PublicAppConfig {
 function jsonResponse(
   body: unknown,
   status: number = 200,
-  extraHeaders: Record<string, string> = {}
+  extraHeaders: Record<string, string> = {},
+  setCookies: string[] = []
 ): Response {
+  const headers = new Headers({
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    Pragma: 'no-cache',
+    Vary: 'Cookie, Authorization',
+    ...extraHeaders,
+  });
+  for (const cookie of setCookies) {
+    headers.append('Set-Cookie', cookie);
+  }
   return new Response(JSON.stringify(body), {
     status,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store',
-      ...extraHeaders,
-    },
+    headers,
   });
 }
 
@@ -282,20 +293,74 @@ function parseCookies(cookieHeader: string | null): Record<string, string> {
   return result;
 }
 
+function isHttpsRequest(request: Request): boolean {
+  const forwarded = (request.headers.get('x-forwarded-proto') || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  if (forwarded === 'https') {
+    return true;
+  }
+  return new URL(request.url).protocol === 'https:';
+}
+
+function isEmbeddedFrameRequest(request: Request): boolean {
+  if ((request.headers.get('x-embedded-frame') || '').trim() === '1') {
+    return true;
+  }
+  const fetchDest = (request.headers.get('sec-fetch-dest') || '').trim().toLowerCase();
+  return fetchDest === 'iframe';
+}
+
+function buildCookieHeader(
+  request: Request,
+  name: string,
+  value: string,
+  maxAge: number
+): string {
+  const clampedMaxAge = Math.max(0, Math.floor(maxAge));
+  const expiresStr =
+    clampedMaxAge <= 0
+      ? 'Thu, 01 Jan 1970 00:00:00 GMT'
+      : new Date(Date.now() + clampedMaxAge * 1000).toUTCString();
+  const parts = [
+    `${name}=${encodeURIComponent(value)}`,
+    'Path=/',
+    `Max-Age=${clampedMaxAge}`,
+    `Expires=${expiresStr}`,
+    'HttpOnly',
+  ];
+  if (isHttpsRequest(request)) {
+    parts.push('Secure');
+    if (isEmbeddedFrameRequest(request)) {
+      parts.push('SameSite=None', 'Partitioned');
+    } else {
+      parts.push('SameSite=Lax');
+    }
+  } else {
+    parts.push('SameSite=Lax');
+  }
+  return parts.join('; ');
+}
+
 function buildStateCookieHeader(request: Request, value: string, maxAge: number): string {
-  const isHttps = new URL(request.url).protocol === 'https:';
+  const clampedMaxAge = Math.max(0, Math.floor(maxAge));
   const parts = [
     `vaal_oauth_state=${encodeURIComponent(value)}`,
     'Path=/',
-    `Max-Age=${maxAge}`,
+    `Max-Age=${clampedMaxAge}`,
     'HttpOnly',
   ];
-  if (isHttps) {
+  if (isHttpsRequest(request)) {
     parts.push('Secure', 'SameSite=None', 'Partitioned');
   } else {
     parts.push('SameSite=Lax');
   }
   return parts.join('; ');
+}
+
+function buildSessionCookieHeader(request: Request, value: string, maxAge: number): string {
+  return buildCookieHeader(request, SESSION_COOKIE_NAME, value, maxAge);
 }
 
 function renderPopupCallbackHtml(options: {
@@ -549,21 +614,63 @@ async function fetchPatreonUserAndMembership(
   };
 }
 
-async function readBearerSession(
+function isCookieMutationCsrfSafe(request: Request): boolean {
+  const method = request.method.toUpperCase();
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+    return true;
+  }
+  if ((request.headers.get('x-requested-with') || '').trim() === 'VaalAuras') {
+    return true;
+  }
+  const originHeader = (request.headers.get('origin') || '').trim();
+  if (!originHeader) {
+    return false;
+  }
+  try {
+    const originHost = new URL(originHeader).host.toLowerCase();
+    const requestHost = (
+      request.headers.get('x-forwarded-host') ||
+      request.headers.get('host') ||
+      new URL(request.url).host
+    )
+      .split(',')[0]
+      .trim()
+      .toLowerCase();
+    return Boolean(originHost && requestHost && originHost === requestHost);
+  } catch {
+    return false;
+  }
+}
+
+async function readAuthenticatedSession(
   request: Request,
   env: WorkerEnv
 ): Promise<{
   session: SealedSessionPayload;
   jti: string;
   signingSecret: string;
+  expiresAtSec: number;
+  remainingSeconds: number;
+  token: string;
 } | null> {
   const signingSecret = getSigningSecret(env);
   if (!signingSecret) {
     return null;
   }
+
   const header = request.headers.get('authorization') || '';
   const match = header.match(/^Bearer\s+(.+)$/i);
-  const token = match?.[1]?.trim();
+  let token = match?.[1]?.trim() || '';
+
+  if (!token) {
+    const cookies = parseCookies(request.headers.get('cookie'));
+    const cookieToken = (cookies[SESSION_COOKIE_NAME] || '').trim();
+    if (!cookieToken || !isCookieMutationCsrfSafe(request)) {
+      return null;
+    }
+    token = cookieToken;
+  }
+
   if (!token || token.length > 8192) {
     return null;
   }
@@ -581,10 +688,23 @@ async function readBearerSession(
     return null;
   }
 
+  const nowSec = Math.floor(Date.now() / 1000);
+  const expiresAtSec =
+    typeof opened.data.sessionExpiresAt === 'number'
+      ? Math.min(opened.data.sessionExpiresAt, opened.data.exp)
+      : opened.data.exp;
+  const remainingSeconds = expiresAtSec - nowSec;
+  if (remainingSeconds <= 0) {
+    return null;
+  }
+
   return {
     session: opened.data,
     jti: opened.data.jti,
     signingSecret,
+    expiresAtSec,
+    remainingSeconds,
+    token,
   };
 }
 
@@ -620,7 +740,7 @@ async function requireDeveloperAuth(
   request: Request,
   env: WorkerEnv
 ): Promise<{ ok: true } | { ok: false; response: Response }> {
-  const auth = await readBearerSession(request, env);
+  const auth = await readAuthenticatedSession(request, env);
   if (!auth) {
     return {
       ok: false,
@@ -1015,24 +1135,35 @@ export async function handleApiOrAuthRequest(
       return jsonResponse({ error: 'This login handoff code was already claimed.' }, 401);
     }
 
+    const nowSec = Math.floor(Date.now() / 1000);
+    const sessionExpiresAt = nowSec + SESSION_TTL_SECONDS;
     const bearerToken = await sealPayloadWeb<SealedSessionPayload>(
       {
         user: opened.data.user,
         entitlement: opened.data.entitlement,
         providerAccessToken: opened.data.providerAccessToken,
         isDemo: opened.data.isDemo,
+        sessionExpiresAt,
       },
       signingSecret,
       'session',
-      12 * 60 * 60
+      SESSION_TTL_SECONDS,
+      nowSec
     );
 
-    return jsonResponse({
-      bearerToken,
-      user: opened.data.user,
-      entitlement: opened.data.entitlement,
-      isDemo: opened.data.isDemo,
-    });
+    return jsonResponse(
+      {
+        bearerToken,
+        user: opened.data.user,
+        entitlement: opened.data.entitlement,
+        isDemo: opened.data.isDemo,
+        expiresAt: new Date(sessionExpiresAt * 1000).toISOString(),
+        expiresInSeconds: SESSION_TTL_SECONDS,
+      },
+      200,
+      {},
+      [buildSessionCookieHeader(request, bearerToken, SESSION_TTL_SECONDS)]
+    );
   }
 
   // 7. Developer Email + Password Login (Credentials stored solely in Worker Env/Secrets)
@@ -1085,42 +1216,85 @@ export async function handleApiOrAuthRequest(
       'Developer account verified (permanent access).'
     );
 
+    const nowSec = Math.floor(Date.now() / 1000);
+    const sessionExpiresAt = nowSec + SESSION_TTL_SECONDS;
     const bearerToken = await sealPayloadWeb<SealedSessionPayload>(
       {
         user,
         entitlement,
         providerAccessToken: null,
         isDemo: false,
+        sessionExpiresAt,
       },
       signingSecret,
       'session',
-      12 * 60 * 60
+      SESSION_TTL_SECONDS,
+      nowSec
     );
 
-    return jsonResponse({ bearerToken, user, entitlement, isDemo: false });
+    return jsonResponse(
+      {
+        bearerToken,
+        user,
+        entitlement,
+        isDemo: false,
+        expiresAt: new Date(sessionExpiresAt * 1000).toISOString(),
+        expiresInSeconds: SESSION_TTL_SECONDS,
+      },
+      200,
+      {},
+      [buildSessionCookieHeader(request, bearerToken, SESSION_TTL_SECONDS)]
+    );
   }
 
-  // 8. Current Session Info
+  // 8. Current Session Info (hydrates in-memory Bearer token from HttpOnly cookie within 24h)
   if (method === 'GET' && pathname === '/api/auth/session') {
-    const auth = await readBearerSession(request, env);
+    const auth = await readAuthenticatedSession(request, env);
     if (!auth) {
-      return jsonResponse({ error: 'Not signed in.' }, 401);
+      const cookies = parseCookies(request.headers.get('cookie'));
+      const hasCookie = Boolean((cookies[SESSION_COOKIE_NAME] || '').trim());
+      const signingSecret = getSigningSecret(env);
+      let reason = 'no_cookie';
+      if (!signingSecret) {
+        reason = 'missing_secret';
+      } else if (hasCookie) {
+        const opened = await openPayloadWeb<SealedSessionPayload>(
+          cookies[SESSION_COOKIE_NAME].trim(),
+          signingSecret,
+          'session'
+        );
+        if (!opened.valid) {
+          reason = opened.error.includes('expired') ? 'expired' : 'invalid_token';
+        } else if (await isJtiConsumed(env, 'revoked_session', opened.data.jti)) {
+          reason = 'revoked';
+        } else {
+          reason = 'expired';
+        }
+      }
+      const clearCookies = hasCookie
+        ? [buildSessionCookieHeader(request, '', 0)]
+        : [];
+      return jsonResponse({ authenticated: false, reason }, 200, {}, clearCookies);
     }
     return jsonResponse({
+      authenticated: true,
+      bearerToken: auth.token,
       user: auth.session.user,
       entitlement: auth.session.entitlement,
       isDemo: auth.session.isDemo,
+      expiresAt: new Date(auth.expiresAtSec * 1000).toISOString(),
+      expiresInSeconds: auth.remainingSeconds,
     });
   }
 
-  // 9. Re-check Live Subscription
+  // 9. Re-check Live Subscription (preserves original 24-hour login expiration)
   if (method === 'POST' && pathname === '/api/auth/recheck') {
-    const auth = await readBearerSession(request, env);
+    const auth = await readAuthenticatedSession(request, env);
     if (!auth) {
       return jsonResponse({ error: 'Not signed in.' }, 401);
     }
 
-    const { session, signingSecret } = auth;
+    const { session, signingSecret, expiresAtSec, remainingSeconds } = auth;
     let updatedUser = session.user;
     let updatedEntitlement = session.entitlement;
 
@@ -1169,36 +1343,48 @@ export async function handleApiOrAuthRequest(
         entitlement: updatedEntitlement,
         providerAccessToken: session.providerAccessToken,
         isDemo: session.isDemo,
+        sessionExpiresAt: expiresAtSec,
       },
       signingSecret,
       'session',
-      12 * 60 * 60
+      remainingSeconds
     );
 
-    return jsonResponse({
-      bearerToken: refreshedBearer,
-      user: updatedUser,
-      entitlement: updatedEntitlement,
-      isDemo: session.isDemo,
-    });
+    return jsonResponse(
+      {
+        bearerToken: refreshedBearer,
+        user: updatedUser,
+        entitlement: updatedEntitlement,
+        isDemo: session.isDemo,
+        expiresAt: new Date(expiresAtSec * 1000).toISOString(),
+        expiresInSeconds: remainingSeconds,
+      },
+      200,
+      {},
+      [buildSessionCookieHeader(request, refreshedBearer, remainingSeconds)]
+    );
   }
 
-  // 10. Sign Out
+  // 10. Sign Out (revokes JTI and clears both OAuth state & 24h session cookies)
   if (method === 'POST' && pathname === '/api/auth/logout') {
-    const auth = await readBearerSession(request, env);
+    const auth = await readAuthenticatedSession(request, env);
     if (auth) {
-      await consumeJti(env, 'revoked_session', auth.jti, 12 * 60 * 60);
+      await consumeJti(env, 'revoked_session', auth.jti, Math.max(60, auth.remainingSeconds));
     }
     return jsonResponse(
       { ok: true },
       200,
-      { 'Set-Cookie': buildStateCookieHeader(request, '', 0) }
+      {},
+      [
+        buildStateCookieHeader(request, '', 0),
+        buildSessionCookieHeader(request, '', 0),
+      ]
     );
   }
 
   // 11. Issue Desktop Handoff Code & Signed License (Requires entitlement.active === true)
   if (method === 'POST' && pathname === '/api/license/issue') {
-    const auth = await readBearerSession(request, env);
+    const auth = await readAuthenticatedSession(request, env);
     if (!auth) {
       return jsonResponse({ error: 'Sign in first before launching VaalAuras.' }, 401);
     }

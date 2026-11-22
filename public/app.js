@@ -213,6 +213,7 @@
       method: opts.method || 'GET',
       headers: headers,
       credentials: 'same-origin',
+      cache: 'no-store',
       body: opts.body,
     });
     var data = null;
@@ -1134,7 +1135,7 @@
 
   async function restoreSession() {
     try {
-      var data = await apiJson('/api/auth/session', { skipAutoExpire: true });
+      var data = await apiJson('/api/auth/session?_=' + Date.now(), { skipAutoExpire: true });
       if (data && data.authenticated && data.bearerToken && data.user && data.entitlement) {
         applySessionPayload(data);
       }

@@ -650,21 +650,27 @@ test('Login sets 24-hour HttpOnly session cookie, restores session on reload, pr
     : logoutRes.headers.get('set-cookie') || '';
   assert.match(logoutCookies, /vaal_session=;.*Max-Age=0/);
 
-  // Subsequent session check reports authenticated: false and clears stale cookie
+  // Subsequent session check reports authenticated: false, reason: 'revoked', and clears stale cookie
   const afterLogoutRes = await handleApiOrAuthRequest(
-    new Request('https://vaalauras.example.workers.dev/api/auth/session', {
+    new Request('https://vaalauras.example.workers.dev/api/auth/session?_=' + Date.now(), {
       headers: { Cookie: cookiePair },
     }),
     env
   );
   assert.ok(afterLogoutRes);
   assert.equal(afterLogoutRes.status, 200);
-  const afterLogoutJson = (await afterLogoutRes.json()) as { authenticated: boolean };
+  assert.match(afterLogoutRes.headers.get('cache-control') || '', /no-store/);
+  assert.match(afterLogoutRes.headers.get('vary') || '', /Cookie/);
+  const afterLogoutJson = (await afterLogoutRes.json()) as {
+    authenticated: boolean;
+    reason?: string;
+  };
   assert.equal(afterLogoutJson.authenticated, false);
+  assert.equal(afterLogoutJson.reason, 'revoked');
   assert.match(afterLogoutRes.headers.get('set-cookie') || '', /vaal_session=;.*Max-Age=0/);
 });
 
-test('Expired session (>24h old) is rejected and clears vaal_session cookie', async () => {
+test('Expired session (>24h old) is rejected with reason=expired and clears vaal_session cookie', async () => {
   const env = makeBaseEnv();
   const pastSec = Math.floor(Date.now() / 1000) - 90000; // 25 hours ago
   const expiredToken = await sealPayloadWeb(
@@ -695,15 +701,16 @@ test('Expired session (>24h old) is rejected and clears vaal_session cookie', as
   );
 
   const res = await handleApiOrAuthRequest(
-    new Request('https://vaalauras.example.workers.dev/api/auth/session', {
+    new Request('https://vaalauras.example.workers.dev/api/auth/session?_=' + Date.now(), {
       headers: { Cookie: `vaal_session=${encodeURIComponent(expiredToken)}` },
     }),
     env
   );
   assert.ok(res);
   assert.equal(res.status, 200);
-  const resJson = (await res.json()) as { authenticated: boolean };
+  const resJson = (await res.json()) as { authenticated: boolean; reason?: string };
   assert.equal(resJson.authenticated, false);
+  assert.equal(resJson.reason, 'expired');
   assert.match(res.headers.get('set-cookie') || '', /vaal_session=;.*Max-Age=0/);
 
   // Protected routes strictly reject the expired session with 401
@@ -720,5 +727,102 @@ test('Expired session (>24h old) is rejected and clears vaal_session cookie', as
   assert.ok(protectedRes);
   assert.equal(protectedRes.status, 401);
 });
+
+test('OAuth claim sets compact HttpOnly session cookie (<2KB) and persists across page refresh; missing/invalid cookies return clear reasons', async () => {
+  const env = makeBaseEnv();
+
+  // Unauthenticated without cookie
+  const noCookieRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/auth/session?_=' + Date.now()),
+    env
+  );
+  assert.ok(noCookieRes);
+  assert.equal(noCookieRes.status, 200);
+  const noCookieJson = (await noCookieRes.json()) as { authenticated: boolean; reason?: string };
+  assert.equal(noCookieJson.authenticated, false);
+  assert.equal(noCookieJson.reason, 'no_cookie');
+
+  // Invalid cookie token
+  const badCookieRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/auth/session', {
+      headers: { Cookie: 'vaal_session=corrupted-token-value' },
+    }),
+    env
+  );
+  assert.ok(badCookieRes);
+  assert.equal(badCookieRes.status, 200);
+  const badCookieJson = (await badCookieRes.json()) as { authenticated: boolean; reason?: string };
+  assert.equal(badCookieJson.authenticated, false);
+  assert.equal(badCookieJson.reason, 'invalid_token');
+
+  // Sealed OAuth claim -> POST /api/auth/claim -> cookie -> GET /api/auth/session
+  const claimCode = await sealPayloadWeb(
+    {
+      user: {
+        id: 'patreon:123456',
+        provider: 'patreon',
+        username: 'ExileSupporter',
+        displayName: 'Exile Supporter',
+        avatarUrl: 'https://c10.patreonusercontent.com/4/avatar.jpg',
+      },
+      entitlement: {
+        active: true,
+        provider: 'patreon',
+        tierCode: 'patreon_tier',
+        tierLabel: '$5.00 Tier',
+        reason: 'Active Patreon tier verified.',
+        checkedAt: new Date().toISOString(),
+      },
+      providerAccessToken: 'patreon-oauth-access-token-example',
+      isDemo: false,
+    },
+    TEST_SIGNING_SECRET,
+    'auth_claim',
+    600
+  );
+
+  const claimRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/auth/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Embedded-Frame': '0' },
+      body: JSON.stringify({ authCode: claimCode }),
+    }),
+    env
+  );
+  assert.ok(claimRes);
+  assert.equal(claimRes.status, 200);
+  const setCookie = claimRes.headers.get('set-cookie') || '';
+  assert.match(setCookie, /vaal_session=/);
+  assert.match(setCookie, /SameSite=Lax/);
+  assert.match(setCookie, /HttpOnly/);
+  assert.match(setCookie, /Secure/);
+
+  const cookiePair = setCookie.split(';')[0];
+  assert.ok(
+    cookiePair.length < 2048,
+    `Expected session cookie pair to be < 2048 bytes, got ${cookiePair.length}`
+  );
+
+  const restoredRes = await handleApiOrAuthRequest(
+    new Request('https://vaalauras.example.workers.dev/api/auth/session?_=' + Date.now(), {
+      headers: { Cookie: cookiePair },
+    }),
+    env
+  );
+  assert.ok(restoredRes);
+  assert.equal(restoredRes.status, 200);
+  const restoredJson = (await restoredRes.json()) as {
+    authenticated: boolean;
+    user: { id: string; provider: string };
+    entitlement: { active: boolean };
+    expiresInSeconds: number;
+  };
+  assert.equal(restoredJson.authenticated, true);
+  assert.equal(restoredJson.user.id, 'patreon:123456');
+  assert.equal(restoredJson.user.provider, 'patreon');
+  assert.equal(restoredJson.entitlement.active, true);
+  assert.ok(restoredJson.expiresInSeconds > 86300);
+});
+
 
 
