@@ -1187,6 +1187,15 @@
       });
     }
 
+    var wordmarkImg = el('brand-wordmark-img');
+    var wordmarkFallback = el('brand-wordmark-fallback');
+    if (wordmarkImg && wordmarkFallback) {
+      wordmarkImg.addEventListener('error', function () {
+        show(wordmarkImg, false);
+        show(wordmarkFallback, true);
+      });
+    }
+
     el('brand-link').addEventListener('click', function (e) {
       e.preventDefault();
       switchView('access');

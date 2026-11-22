@@ -114,6 +114,17 @@ code {
   display: block;
 }
 
+.brand-wordmark-img {
+  height: 38px;
+  width: auto;
+  max-width: 170px;
+  object-fit: contain;
+  display: block;
+  flex-shrink: 0;
+  transform: translateY(3px);
+  filter: brightness(1.16) drop-shadow(0 1px 6px rgba(212, 162, 87, 0.14));
+}
+
 .brand-wordmark {
   font-family: var(--font-display);
   font-weight: 700;
@@ -1129,6 +1140,11 @@ textarea:focus-visible {
   .topbar-left {
     gap: 14px;
     flex-wrap: wrap;
+  }
+
+  .brand-wordmark-img {
+    height: 31px;
+    transform: translateY(2px);
   }
 
   .brand-wordmark {
