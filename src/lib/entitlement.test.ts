@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  applyActiveLifetimeEntitlement,
   buildDeveloperEntitlement,
+  buildRestoredLifetimeEntitlement,
   evaluateTwitchSubscription,
   evaluatePatreonMembership,
+  getLifetimeGrantKvKey,
   isDeveloperTwitchLogin,
+  mergeLifetimeGrantRecord,
 } from './entitlement';
 
 test('Twitch: verifies active Tier 1 / Prime subscription', () => {
@@ -158,6 +162,29 @@ test('Patreon: rejects former_patron even if previous amount was $5+', () => {
   assert.match(result.reason, /former patron/);
 });
 
+test('Patreon: grants lifetime access to former_patron with lifetime_support_cents >= minTierCents', () => {
+  const payload = {
+    data: { id: 'u3b' },
+    included: [
+      {
+        id: 'mem_3b',
+        type: 'member',
+        attributes: {
+          patron_status: 'former_patron',
+          currently_entitled_amount_cents: 0,
+          lifetime_support_cents: 500,
+        },
+      },
+    ],
+  };
+
+  const result = evaluatePatreonMembership(payload, { minTierCents: 500 });
+  assert.equal(result.active, true);
+  assert.equal(result.lifetime, true);
+  assert.equal(result.tierCode, 'lifetime');
+  assert.equal(result.tierLabel, 'Lifetime Access');
+});
+
 test('Patreon: enforces requiredTierId when specified', () => {
   const payload = {
     data: { id: 'u4' },
@@ -196,4 +223,45 @@ test('Developer entitlement: constructs active Developer tier payload', () => {
   assert.equal(ent.tierLabel, 'Developer');
   assert.equal(ent.tierCode, 'developer');
 });
+
+test('Lifetime helpers: preserve earliest grantedAt and restore active access cleanly', () => {
+  const live = evaluateTwitchSubscription(
+    200,
+    { data: [{ broadcaster_id: '123', tier: '1000', is_gift: false }] },
+    '123',
+    '2026-10-01T00:00:00.000Z'
+  );
+  const user = {
+    id: 'twitch:999',
+    provider: 'twitch' as const,
+    username: 'exile_fan',
+    displayName: 'ExileFan',
+  };
+  assert.equal(getLifetimeGrantKvKey(user.id), 'lifetime:v1:twitch:999');
+
+  const rec1 = mergeLifetimeGrantRecord(null, user, live, '2026-10-01T00:00:00.000Z');
+  assert.equal(rec1.grantedAt, '2026-10-01T00:00:00.000Z');
+  assert.equal(rec1.sourceTierLabel, 'Tier 1 / Prime');
+
+  const rec2 = mergeLifetimeGrantRecord(
+    rec1,
+    user,
+    { ...live, tierLabel: 'Tier 2' },
+    '2026-11-22T00:00:00.000Z'
+  );
+  assert.equal(rec2.grantedAt, '2026-10-01T00:00:00.000Z');
+  assert.equal(rec2.lastVerifiedAt, '2026-11-22T00:00:00.000Z');
+
+  const activeApplied = applyActiveLifetimeEntitlement(live, rec1);
+  assert.equal(activeApplied.lifetime, true);
+  assert.match(activeApplied.tierLabel, /Lifetime/);
+
+  const restored = buildRestoredLifetimeEntitlement(rec1, '2026-12-01T00:00:00.000Z');
+  assert.equal(restored.active, true);
+  assert.equal(restored.lifetime, true);
+  assert.equal(restored.tierCode, 'lifetime');
+  assert.equal(restored.tierLabel, 'Lifetime Access');
+  assert.match(restored.reason, /2026-10-01/);
+});
+
 

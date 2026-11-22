@@ -22,7 +22,7 @@
       href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=20261122-4" />
+    <link rel="stylesheet" href="/styles.css?v=20261122-5" />
   </head>
   <body>
     <header class="topbar">
@@ -121,10 +121,10 @@
               <span class="hud-corner bl" aria-hidden="true"></span>
               <span class="hud-corner br" aria-hidden="true"></span>
 
-              <p class="eyebrow">Membership Verification</p>
+              <p class="eyebrow">Lifetime Membership Verification</p>
               <h1 class="display-title">Unlock VaalAuras Premium</h1>
               <p class="lead-copy">
-                Sign in with Twitch or an active Patreon membership to continue.
+                Sign in with Twitch or Patreon — subscribing once unlocks lifetime access.
               </p>
 
               <div class="provider-stack">
@@ -209,6 +209,12 @@
                 </div>
               </div>
 
+              <div id="access-kv-warning" class="alert-banner alert-warn hidden">
+                <strong>Cloudflare KV not bound:</strong> Bind a KV namespace named
+                <code>CONTENT_KV</code> (or <code>AUTH_KV</code>) in Worker Settings &rarr; Bindings
+                so user Lifetime Access unlocks are saved permanently across logins.
+              </div>
+
               <div class="verdict-box verdict-ok">
                 <p id="verified-reason" class="verdict-text">
                   Access verified. Click Log in below to open VaalAuras.
@@ -265,7 +271,7 @@
 
               <div class="verdict-box verdict-fail">
                 <p id="denied-reason" class="verdict-text">
-                  No active Twitch subscription or $5+ Patreon tier was found.
+                  No lifetime unlock or active Twitch subscription / $5+ Patreon tier was found.
                 </p>
                 <p class="verdict-time">
                   Checked <span id="denied-checked-at" class="mono tabular-nums">—</span>
@@ -542,6 +548,6 @@
       </section>
     </main>
 
-    <script src="/app.js?v=20261122-4"></script>
+    <script src="/app.js?v=20261122-5"></script>
   </body>
 </html>

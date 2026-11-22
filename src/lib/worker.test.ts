@@ -824,5 +824,240 @@ test('OAuth claim sets compact HttpOnly session cookie (<2KB) and persists acros
   assert.ok(restoredJson.expiresInSeconds > 86300);
 });
 
+test('Twitch subscriber earns lifetime KV access so logging in a month later after expiry keeps access active', async () => {
+  const kv = createMemoryKv();
+  const env = makeBaseEnv({ CONTENT_KV: kv });
+  const originalFetch = globalThis.fetch;
+  let twitchSubscribed = true;
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith('https://id.twitch.tv/oauth2/token')) {
+      return new Response(JSON.stringify({ access_token: 'twitch-sub-token' }), { status: 200 });
+    }
+    if (url.startsWith('https://api.twitch.tv/helix/users')) {
+      return new Response(
+        JSON.stringify({
+          data: [{ id: '777001', login: 'month_one_sub', display_name: 'MonthOneSub' }],
+        }),
+        { status: 200 }
+      );
+    }
+    if (url.startsWith('https://api.twitch.tv/helix/subscriptions/user')) {
+      if (twitchSubscribed) {
+        return new Response(
+          JSON.stringify({
+            data: [{ broadcaster_id: '99999999', tier: '1000', is_gift: false }],
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response(JSON.stringify({ error: 'Not Found' }), { status: 404 });
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  }) as typeof fetch;
+
+  async function runTwitchOAuthLogin(): Promise<{
+    bearerToken: string;
+    entitlement: { active: boolean; tierLabel: string; tierCode: string | null; lifetime?: boolean };
+  }> {
+    const urlRes = await handleApiOrAuthRequest(
+      new Request('https://vaalauras.example.workers.dev/api/auth/twitch/url'),
+      env
+    );
+    const { url } = (await urlRes!.json()) as { url: string };
+    const stateToken = new URL(url).searchParams.get('state')!;
+    const cbRes = await handleApiOrAuthRequest(
+      new Request(
+        `https://vaalauras.example.workers.dev/auth/twitch/callback?code=c&state=${encodeURIComponent(stateToken)}`
+      ),
+      env
+    );
+    const html = await cbRes!.text();
+    const authCode = html.match(/"authCode":"([^"]+)"/)![1];
+    const claimRes = await handleApiOrAuthRequest(
+      new Request('https://vaalauras.example.workers.dev/api/auth/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ authCode }),
+      }),
+      env
+    );
+    assert.ok(claimRes);
+    assert.equal(claimRes.status, 200);
+    return (await claimRes.json()) as {
+      bearerToken: string;
+      entitlement: { active: boolean; tierLabel: string; tierCode: string | null; lifetime?: boolean };
+    };
+  }
+
+  try {
+    // 1. Month 1: user logs in with active sub -> unlocks lifetime access in KV
+    const firstLogin = await runTwitchOAuthLogin();
+    assert.equal(firstLogin.entitlement.active, true);
+    assert.equal(firstLogin.entitlement.lifetime, true);
+
+    // 2. Month 2: subscription has lapsed (Twitch returns 404), user logs in fresh
+    twitchSubscribed = false;
+    const secondLogin = await runTwitchOAuthLogin();
+    assert.equal(secondLogin.entitlement.active, true);
+    assert.equal(secondLogin.entitlement.lifetime, true);
+    assert.equal(secondLogin.entitlement.tierCode, 'lifetime');
+    assert.equal(secondLogin.entitlement.tierLabel, 'Lifetime Access');
+
+    // Desktop license handoff works immediately with restored lifetime access
+    const issueRes = await handleApiOrAuthRequest(
+      new Request('https://vaalauras.example.workers.dev/api/license/issue', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${secondLogin.bearerToken}` },
+      }),
+      env
+    );
+    assert.ok(issueRes);
+    assert.equal(issueRes.status, 200);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Patreon $5+ patron retains lifetime KV access after cancelling; non-subscriber stays denied until subscribed', async () => {
+  const kv = createMemoryKv();
+  const env = makeBaseEnv({
+    CONTENT_KV: kv,
+    PATREON_CLIENT_ID: 'pat-client-id',
+    PATREON_CLIENT_SECRET: 'pat-client-secret',
+    PATREON_MIN_TIER_CENTS: '500',
+  });
+  const originalFetch = globalThis.fetch;
+
+  let currentPatronId = 'pat-paying-1';
+  let patronState: 'active_5' | 'former_cancelled' | 'never_paid' = 'active_5';
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith('https://www.patreon.com/api/oauth2/token')) {
+      return new Response(JSON.stringify({ access_token: 'pat-access-token' }), { status: 200 });
+    }
+    if (url.startsWith('https://www.patreon.com/api/oauth2/v2/identity')) {
+      const included =
+        patronState === 'active_5'
+          ? [
+              {
+                id: 'tier-5',
+                type: 'tier',
+                attributes: { title: 'Vaal Supporter', amount_cents: 500 },
+              },
+              {
+                id: 'mem-1',
+                type: 'member',
+                attributes: {
+                  patron_status: 'active_patron',
+                  currently_entitled_amount_cents: 500,
+                },
+                relationships: {
+                  currently_entitled_tiers: { data: [{ id: 'tier-5', type: 'tier' }] },
+                },
+              },
+            ]
+          : patronState === 'former_cancelled'
+            ? [
+                {
+                  id: 'mem-1',
+                  type: 'member',
+                  attributes: {
+                    patron_status: 'former_patron',
+                    currently_entitled_amount_cents: 0,
+                  },
+                },
+              ]
+            : [];
+      return new Response(
+        JSON.stringify({
+          data: {
+            id: currentPatronId,
+            attributes: { full_name: `User ${currentPatronId}` },
+          },
+          included,
+        }),
+        { status: 200 }
+      );
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  }) as typeof fetch;
+
+  async function runPatreonLogin(): Promise<{
+    bearerToken: string;
+    entitlement: { active: boolean; tierLabel: string; tierCode: string | null; lifetime?: boolean };
+  }> {
+    const urlRes = await handleApiOrAuthRequest(
+      new Request('https://vaalauras.example.workers.dev/api/auth/patreon/url'),
+      env
+    );
+    const { url } = (await urlRes!.json()) as { url: string };
+    const stateToken = new URL(url).searchParams.get('state')!;
+    const cbRes = await handleApiOrAuthRequest(
+      new Request(
+        `https://vaalauras.example.workers.dev/auth/patreon/callback?code=c&state=${encodeURIComponent(stateToken)}`
+      ),
+      env
+    );
+    const html = await cbRes!.text();
+    const authCode = html.match(/"authCode":"([^"]+)"/)![1];
+    const claimRes = await handleApiOrAuthRequest(
+      new Request('https://vaalauras.example.workers.dev/api/auth/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ authCode }),
+      }),
+      env
+    );
+    assert.ok(claimRes);
+    assert.equal(claimRes.status, 200);
+    return (await claimRes.json()) as {
+      bearerToken: string;
+      entitlement: { active: boolean; tierLabel: string; tierCode: string | null; lifetime?: boolean };
+    };
+  }
+
+  try {
+    // Active $5 patron unlocks lifetime KV record
+    const first = await runPatreonLogin();
+    assert.equal(first.entitlement.active, true);
+    assert.equal(first.entitlement.lifetime, true);
+
+    // Later they cancel (former_patron, 0 cents) -> still granted Lifetime Access from KV
+    patronState = 'former_cancelled';
+    const afterCancel = await runPatreonLogin();
+    assert.equal(afterCancel.entitlement.active, true);
+    assert.equal(afterCancel.entitlement.lifetime, true);
+    assert.equal(afterCancel.entitlement.tierLabel, 'Lifetime Access');
+
+    // Different user who never paid remains denied, then unlocks via Re-check once subscribed
+    currentPatronId = 'pat-free-user';
+    patronState = 'never_paid';
+    const denied = await runPatreonLogin();
+    assert.equal(denied.entitlement.active, false);
+
+    patronState = 'active_5';
+    const recheckRes = await handleApiOrAuthRequest(
+      new Request('https://vaalauras.example.workers.dev/api/auth/recheck', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${denied.bearerToken}` },
+      }),
+      env
+    );
+    assert.ok(recheckRes);
+    assert.equal(recheckRes.status, 200);
+    const recheckJson = (await recheckRes.json()) as {
+      entitlement: { active: boolean; lifetime?: boolean };
+    };
+    assert.equal(recheckJson.entitlement.active, true);
+    assert.equal(recheckJson.entitlement.lifetime, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
 
 

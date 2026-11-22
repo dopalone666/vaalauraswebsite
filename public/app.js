@@ -359,7 +359,11 @@
         el('verified-reason').textContent = ent.reason;
         el('verified-checked-at').textContent = checkedLabel;
 
-        show(el('btn-recheck-verified'), user.provider !== 'developer');
+        show(el('access-kv-warning'), Boolean(isDeveloper() && cfg && !cfg.kvConfigured));
+        show(
+          el('btn-recheck-verified'),
+          user.provider !== 'developer' && !ent.lifetime && ent.tierCode !== 'lifetime'
+        );
       } else {
         show(el('state-logged-out'), false);
         show(el('state-verified'), false);

@@ -25,6 +25,8 @@ export interface EntitlementResult {
   tierCode: string | null;
   amountCents: number | null;
   isGift: boolean;
+  lifetime?: boolean;
+  grantedAt?: string;
   reason: string;
   checkedAt: string;
 }

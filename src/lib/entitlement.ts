@@ -146,13 +146,15 @@ export function evaluateTwitchSubscription(
 interface PatreonIncludedResource {
   id: string;
   type: string;
-  attributes?: {
-    patron_status?: string | null;
-    currently_entitled_amount_cents?: number | null;
-    will_pay_amount_cents?: number | null;
-    title?: string | null;
-    amount_cents?: number | null;
-  };
+    attributes?: {
+      patron_status?: string | null;
+      currently_entitled_amount_cents?: number | null;
+      will_pay_amount_cents?: number | null;
+      lifetime_support_cents?: number | null;
+      last_charge_status?: string | null;
+      title?: string | null;
+      amount_cents?: number | null;
+    };
   relationships?: {
     campaign?: {
       data?: { id?: string; type?: string } | null;
@@ -236,6 +238,11 @@ export function evaluatePatreonMembership(
     amountCents: number;
   } | null = null;
 
+  let priorPaidLifetime: {
+    tierLabel: string;
+    amountCents: number;
+  } | null = null;
+
   let closestRejected: {
     status: string;
     amountCents: number;
@@ -247,6 +254,10 @@ export function evaluatePatreonMembership(
     const entitledCents = Number(
       member.attributes?.currently_entitled_amount_cents ?? 0
     );
+    const lifetimeSupportCents =
+      typeof member.attributes?.lifetime_support_cents === 'number'
+        ? member.attributes.lifetime_support_cents
+        : null;
     const entitledTierRefs =
       member.relationships?.currently_entitled_tiers?.data || [];
     const tierIds = entitledTierRefs
@@ -277,6 +288,19 @@ export function evaluatePatreonMembership(
         };
       }
     } else if (
+      status === 'former_patron' &&
+      !requiredTierId &&
+      lifetimeSupportCents !== null &&
+      lifetimeSupportCents >= minTierCents
+    ) {
+      const lifetimeDollars = `$${(lifetimeSupportCents / 100).toFixed(2)}`;
+      if (!priorPaidLifetime || lifetimeSupportCents > priorPaidLifetime.amountCents) {
+        priorPaidLifetime = {
+          tierLabel: `Lifetime Access (${lifetimeDollars} prior support)`,
+          amountCents: lifetimeSupportCents,
+        };
+      }
+    } else if (
       !closestRejected ||
       entitledCents > closestRejected.amountCents
     ) {
@@ -301,6 +325,22 @@ export function evaluatePatreonMembership(
     };
   }
 
+  if (priorPaidLifetime) {
+    const lifetimeDollars = `$${(priorPaidLifetime.amountCents / 100).toFixed(2)}`;
+    return {
+      active: true,
+      provider: 'patreon',
+      tierLabel: 'Lifetime Access',
+      tierCode: 'lifetime',
+      amountCents: priorPaidLifetime.amountCents,
+      isGift: false,
+      lifetime: true,
+      grantedAt: nowIso,
+      reason: `Prior Patreon support verified (${lifetimeDollars} lifetime). Lifetime access unlocked.`,
+      checkedAt: nowIso,
+    };
+  }
+
   const requiredDollars = `$${(minTierCents / 100).toFixed(2)}`;
   if (closestRejected && closestRejected.status !== 'active_patron') {
     const friendlyStatus = closestRejected.status.replace(/_/g, ' ');
@@ -311,7 +351,7 @@ export function evaluatePatreonMembership(
       tierCode: null,
       amountCents: closestRejected.amountCents,
       isGift: false,
-      reason: `Patreon membership is currently "${friendlyStatus}". An active ${requiredDollars}+ tier is required.`,
+      reason: `Patreon membership is currently "${friendlyStatus}". Subscribe once (${requiredDollars}+ tier) to unlock lifetime access.`,
       checkedAt: nowIso,
     };
   }
@@ -327,7 +367,76 @@ export function evaluatePatreonMembership(
     tierCode: null,
     amountCents: closestRejected?.amountCents ?? 0,
     isGift: false,
-    reason: `Current Patreon pledge is ${currentDollars}/mo. At least the ${requiredDollars}/mo tier is required to unlock app access.`,
+    reason: `Current Patreon pledge is ${currentDollars}/mo. Subscribe once at ${requiredDollars}+ to unlock lifetime app access.`,
     checkedAt: nowIso,
   };
 }
+
+export interface LifetimeGrantRecord {
+  userId: string;
+  provider: AuthProvider;
+  username: string;
+  displayName: string;
+  sourceTierLabel: string;
+  grantedAt: string;
+  lastVerifiedAt: string;
+}
+
+export function getLifetimeGrantKvKey(userId: string): string {
+  return `lifetime:v1:${userId}`;
+}
+
+export function mergeLifetimeGrantRecord(
+  existing: LifetimeGrantRecord | null,
+  user: { id: string; provider: AuthProvider; username: string; displayName: string },
+  live: EntitlementResult,
+  nowIso: string = live.checkedAt || new Date().toISOString()
+): LifetimeGrantRecord {
+  return {
+    userId: user.id,
+    provider: user.provider,
+    username: user.username,
+    displayName: user.displayName,
+    sourceTierLabel: existing?.sourceTierLabel || live.tierLabel,
+    grantedAt: existing?.grantedAt || live.grantedAt || nowIso,
+    lastVerifiedAt: nowIso,
+  };
+}
+
+export function applyActiveLifetimeEntitlement(
+  live: EntitlementResult,
+  existing: LifetimeGrantRecord | null,
+  nowIso: string = live.checkedAt || new Date().toISOString()
+): EntitlementResult {
+  const grantedAt = existing?.grantedAt || live.grantedAt || nowIso;
+  const baseLabel = live.tierCode === 'lifetime' ? 'Lifetime Access' : `${live.tierLabel} · Lifetime`;
+  return {
+    ...live,
+    active: true,
+    lifetime: true,
+    grantedAt,
+    tierLabel: baseLabel,
+    reason: `${live.reason} Lifetime access is permanently unlocked for this account.`,
+  };
+}
+
+export function buildRestoredLifetimeEntitlement(
+  record: LifetimeGrantRecord,
+  nowIso: string = new Date().toISOString()
+): EntitlementResult {
+  const grantedDate = record.grantedAt ? record.grantedAt.slice(0, 10) : '';
+  const sinceText = grantedDate ? ` on ${grantedDate}` : '';
+  return {
+    active: true,
+    provider: record.provider,
+    tierLabel: 'Lifetime Access',
+    tierCode: 'lifetime',
+    amountCents: null,
+    isGift: false,
+    lifetime: true,
+    grantedAt: record.grantedAt,
+    reason: `Lifetime access unlocked (${record.sourceTierLabel}${sinceText}). Active permanently even after subscription ends.`,
+    checkedAt: nowIso,
+  };
+}
+

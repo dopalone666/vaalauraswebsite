@@ -6,10 +6,15 @@ import {
   validateGuideInput,
 } from './src/lib/content';
 import {
+  applyActiveLifetimeEntitlement,
   buildDeveloperEntitlement,
+  buildRestoredLifetimeEntitlement,
   evaluatePatreonMembership,
   evaluateTwitchSubscription,
+  getLifetimeGrantKvKey,
   isDeveloperTwitchLogin,
+  mergeLifetimeGrantRecord,
+  type LifetimeGrantRecord,
 } from './src/lib/entitlement';
 import {
   buildAppLaunchUrl,
@@ -108,13 +113,18 @@ function trackLocalJti(key: string): void {
   usedJtis.add(key);
 }
 
+function getEntitlementKv(env: WorkerEnv): KVNamespaceLike | null {
+  return env.AUTH_KV || env.CONTENT_KV || null;
+}
+
 async function isJtiConsumed(env: WorkerEnv, namespace: string, jti: string): Promise<boolean> {
   const key = `${namespace}:${jti}`;
   if (usedJtis.has(key)) {
     return true;
   }
-  if (env.AUTH_KV) {
-    const val = await env.AUTH_KV.get(key);
+  const kv = getEntitlementKv(env);
+  if (kv) {
+    const val = await kv.get(key);
     if (val !== null) {
       trackLocalJti(key);
       return true;
@@ -135,8 +145,9 @@ async function consumeJti(
   }
   const key = `${namespace}:${jti}`;
   trackLocalJti(key);
-  if (env.AUTH_KV) {
-    await env.AUTH_KV.put(key, '1', { expirationTtl: Math.max(60, ttlSeconds) });
+  const kv = getEntitlementKv(env);
+  if (kv) {
+    await kv.put(key, '1', { expirationTtl: Math.max(60, ttlSeconds) });
   }
   return true;
 }
@@ -458,6 +469,60 @@ function renderPopupCallbackHtml(options: {
   return htmlResponse(html, options.ok ? 200 : 400);
 }
 
+function sanitizeAvatarUrl(raw?: string | null): string | null {
+  const trimmed = (raw || '').trim();
+  if (!trimmed || trimmed.length > 512 || !/^https?:\/\//i.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
+async function loadLifetimeGrant(
+  env: WorkerEnv,
+  userId: string
+): Promise<LifetimeGrantRecord | null> {
+  const kv = getEntitlementKv(env);
+  if (!kv) {
+    return null;
+  }
+  try {
+    const raw = await kv.get(getLifetimeGrantKvKey(userId));
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<LifetimeGrantRecord>;
+    if (!parsed || typeof parsed !== 'object' || parsed.userId !== userId) {
+      return null;
+    }
+    return parsed as LifetimeGrantRecord;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveUserLifetimeEntitlement(
+  env: WorkerEnv,
+  user: VerifiedUser,
+  liveEntitlement: EntitlementResult
+): Promise<EntitlementResult> {
+  const existing = await loadLifetimeGrant(env, user.id);
+
+  if (liveEntitlement.active) {
+    const kv = getEntitlementKv(env);
+    if (kv) {
+      const nextRecord = mergeLifetimeGrantRecord(existing, user, liveEntitlement);
+      await kv.put(getLifetimeGrantKvKey(user.id), JSON.stringify(nextRecord));
+    }
+    return applyActiveLifetimeEntitlement(liveEntitlement, existing);
+  }
+
+  if (existing) {
+    return buildRestoredLifetimeEntitlement(existing, liveEntitlement.checkedAt);
+  }
+
+  return liveEntitlement;
+}
+
 async function fetchTwitchUserAndSub(
   accessToken: string,
   env: WorkerEnv
@@ -491,15 +556,17 @@ async function fetchTwitchUserAndSub(
     throw new Error('Twitch returned an empty user profile.');
   }
 
+  const user: VerifiedUser = {
+    id: `twitch:${twitchUser.id}`,
+    provider: 'twitch',
+    username: twitchUser.login,
+    displayName: twitchUser.display_name || twitchUser.login,
+    avatarUrl: sanitizeAvatarUrl(twitchUser.profile_image_url),
+  };
+
   if (isDeveloperTwitchLogin(twitchUser.login, env.DEV_TWITCH_LOGINS)) {
     return {
-      user: {
-        id: `twitch:${twitchUser.id}`,
-        provider: 'twitch',
-        username: twitchUser.login,
-        displayName: twitchUser.display_name || twitchUser.login,
-        avatarUrl: twitchUser.profile_image_url || null,
-      },
+      user,
       entitlement: buildDeveloperEntitlement(
         'twitch',
         'Developer Twitch account verified (permanent access).'
@@ -525,20 +592,15 @@ async function fetchTwitchUserAndSub(
     subBody = null;
   }
 
-  const entitlement = evaluateTwitchSubscription(
+  const liveEntitlement = evaluateTwitchSubscription(
     subResp.status,
     subBody,
     twitch.broadcasterId
   );
+  const entitlement = await resolveUserLifetimeEntitlement(env, user, liveEntitlement);
 
   return {
-    user: {
-      id: `twitch:${twitchUser.id}`,
-      provider: 'twitch',
-      username: twitchUser.login,
-      displayName: twitchUser.display_name || twitchUser.login,
-      avatarUrl: twitchUser.profile_image_url || null,
-    },
+    user,
     entitlement,
   };
 }
@@ -560,7 +622,7 @@ async function fetchPatreonUserAndMembership(
   identityUrl.searchParams.set('fields[user]', 'full_name,email,image_url,vanity');
   identityUrl.searchParams.set(
     'fields[member]',
-    'patron_status,currently_entitled_amount_cents,will_pay_amount_cents,last_charge_status'
+    'patron_status,currently_entitled_amount_cents,will_pay_amount_cents,last_charge_status,lifetime_support_cents'
   );
   identityUrl.searchParams.set('fields[tier]', 'title,amount_cents');
 
@@ -590,26 +652,29 @@ async function fetchPatreonUserAndMembership(
     throw new Error('Patreon returned an invalid user identity.');
   }
 
-  const entitlement = evaluatePatreonMembership(payload, {
-    minTierCents: patreon.minTierCents,
-    requiredCampaignId: patreon.campaignId || undefined,
-    requiredTierId: patreon.tierId || undefined,
-  });
-
   const displayName =
     payload.data?.attributes?.full_name ||
     payload.data?.attributes?.vanity ||
     `Patron ${patreonId}`;
   const username = payload.data?.attributes?.vanity || displayName;
 
+  const user: VerifiedUser = {
+    id: `patreon:${patreonId}`,
+    provider: 'patreon',
+    username,
+    displayName,
+    avatarUrl: sanitizeAvatarUrl(payload.data?.attributes?.image_url),
+  };
+
+  const liveEntitlement = evaluatePatreonMembership(payload, {
+    minTierCents: patreon.minTierCents,
+    requiredCampaignId: patreon.campaignId || undefined,
+    requiredTierId: patreon.tierId || undefined,
+  });
+  const entitlement = await resolveUserLifetimeEntitlement(env, user, liveEntitlement);
+
   return {
-    user: {
-      id: `patreon:${patreonId}`,
-      provider: 'patreon',
-      username,
-      displayName,
-      avatarUrl: payload.data?.attributes?.image_url || null,
-    },
+    user,
     entitlement,
   };
 }
@@ -1309,10 +1374,15 @@ export async function handleApiOrAuthRequest(
         checkedAt: new Date().toISOString(),
       };
     } else if (!session.providerAccessToken) {
-      return jsonResponse(
-        { error: 'OAuth access token missing. Please sign in again.' },
-        401
-      );
+      const existingLifetime = await loadLifetimeGrant(env, session.user.id);
+      if (existingLifetime) {
+        updatedEntitlement = buildRestoredLifetimeEntitlement(existingLifetime);
+      } else {
+        return jsonResponse(
+          { error: 'OAuth access token missing. Please sign in again.' },
+          401
+        );
+      }
     } else {
       try {
         if (session.user.provider === 'twitch') {
@@ -1325,15 +1395,20 @@ export async function handleApiOrAuthRequest(
           updatedEntitlement = refreshed.entitlement;
         }
       } catch (err) {
-        return jsonResponse(
-          {
-            error:
-              err instanceof Error
-                ? err.message
-                : 'Provider re-check failed. Please sign in again.',
-          },
-          401
-        );
+        const existingLifetime = await loadLifetimeGrant(env, session.user.id);
+        if (existingLifetime) {
+          updatedEntitlement = buildRestoredLifetimeEntitlement(existingLifetime);
+        } else {
+          return jsonResponse(
+            {
+              error:
+                err instanceof Error
+                  ? err.message
+                  : 'Provider re-check failed. Please sign in again.',
+            },
+            401
+          );
+        }
       }
     }
 

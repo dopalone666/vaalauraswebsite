@@ -15,7 +15,7 @@
     "PATREON_MIN_TIER_CENTS": "500",
     "DEV_TWITCH_LOGINS": "dopalonee"
   }
-  // Required to persist Guide & Changelog posts edited in the browser on Cloudflare:
+  // Required to save user Lifetime Access grants and Guide & Changelog posts permanently on Cloudflare:
   // Create a free KV namespace (`npx wrangler kv namespace create CONTENT_KV` or via Dashboard),
   // bind it in Worker Settings -> Bindings (or uncomment below):
   // ,
