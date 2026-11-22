@@ -48,18 +48,6 @@
     show(errNode, true);
   }
 
-  function setLaunchStatus(message) {
-    var node = el('launch-status-msg');
-    if (!node) return;
-    if (!message) {
-      node.textContent = '';
-      show(node, false);
-      return;
-    }
-    node.textContent = message;
-    show(node, true);
-  }
-
   function initialsFor(name) {
     var parts = String(name || 'VA').trim().split(/\s+/);
     if (parts.length >= 2) {
@@ -167,11 +155,6 @@
       var minDollars = '$' + (cfg.patreonMinTierCents / 100).toFixed(2);
       setText('min-tier-copy', minDollars);
       setText('patreon-tier-note', minDollars + '+ tier');
-      var localhostPort = String(cfg.localhostPort || 48912);
-      setText(
-        'btn-send-localhost-inline',
-        "Desktop app didn't open? Send to localhost:" + localhostPort
-      );
     }
 
     if (!signedIn) {
@@ -261,7 +244,6 @@
         entitlement: data.entitlement,
       };
       state.handoff = null;
-      setLaunchStatus('');
       renderPortal();
     } catch (err) {
       setBanner(err.message || 'Could not verify login handoff.', 'error');
@@ -300,7 +282,6 @@
       state.handoff = null;
       el('dev-password').value = '';
       toggleDevForm(false);
-      setLaunchStatus('');
       renderPortal();
     } catch (err) {
       setDevError(err.message || 'Invalid email or password.');
@@ -324,7 +305,6 @@
         entitlement: data.entitlement,
       };
       state.handoff = null;
-      setLaunchStatus('');
       renderPortal();
       setBanner('Membership status refreshed.', 'info');
     } catch (err) {
@@ -335,7 +315,6 @@
   async function signOut() {
     setBanner('');
     setDevError('');
-    setLaunchStatus('');
     try {
       if (state.bearerToken) {
         await apiJson('/api/auth/logout', { method: 'POST' });
@@ -349,7 +328,6 @@
 
   async function launchDesktopApp() {
     setBanner('');
-    setLaunchStatus('');
     var btn = el('btn-launch-desktop');
     if (btn) btn.disabled = true;
 
@@ -357,7 +335,6 @@
       var payload = await apiJson('/api/license/issue', { method: 'POST' });
       state.handoff = payload;
       triggerHiddenNavigation(payload.appLaunchUri);
-      setLaunchStatus('Opening VaalAuras desktop app...');
     } catch (err) {
       setBanner(err.message || 'Could not generate desktop launch code.', 'error');
     } finally {
@@ -367,13 +344,10 @@
 
   async function sendToLocalhostFallback() {
     setBanner('');
-    setLaunchStatus('');
     try {
       var payload = await apiJson('/api/license/issue', { method: 'POST' });
       state.handoff = payload;
       triggerHiddenNavigation(payload.localhostCallbackUrl);
-      var port = (state.config && state.config.localhostPort) || 48912;
-      setLaunchStatus('Sent login code to localhost:' + String(port) + '.');
     } catch (err) {
       setBanner(err.message || 'Could not send login code to localhost.', 'error');
     }
