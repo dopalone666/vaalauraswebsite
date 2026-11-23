@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/assets/vaalauras_logo.png" />
+    <title>VaalAuras — Membership, Guide &amp; Changelog</title>
+    <meta
+      name="description"
+      content="Sign in with Twitch or Patreon to verify your subscription and unlock VaalAuras premium features, or read guides and release changelogs."
+    />
+    <meta property="og:title" content="VaalAuras — Membership, Guide &amp; Changelog" />
+    <meta
+      property="og:description"
+      content="Sign in with Twitch or Patreon to verify your subscription and unlock VaalAuras premium features, or read guides and release changelogs."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css?v=20261123-2" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="topbar-left">
+          <a href="#access" class="brand" id="brand-link">
+            <span class="brand-icon-wrap">
+              <img
+                src="/assets/vaalauras_logo.png"
+                alt="VaalAuras emblem"
+                class="brand-logo"
+                id="brand-logo-img"
+                width="32"
+                height="32"
+              />
+              <svg
+                id="brand-logo-fallback"
+                class="brand-logo-fallback hidden"
+                viewBox="0 0 64 64"
+                fill="none"
+                aria-hidden="true"
+              >
+                <circle cx="32" cy="32" r="24" stroke="#8C6747" stroke-width="2.5" fill="#181012" />
+                <path
+                  d="M32 6 L37 22 L54 14 L42 29 L58 32 L42 35 L54 50 L37 42 L32 58 L27 42 L10 50 L22 35 L6 32 L22 29 L10 14 L27 22 Z"
+                  fill="#7D5236"
+                  stroke="#C99862"
+                  stroke-width="1.5"
+                />
+                <circle cx="32" cy="32" r="9.5" fill="#2A090B" stroke="#C99862" stroke-width="1.5" />
+                <circle cx="32" cy="32" r="4.5" fill="#9E1E24" />
+                <circle cx="32" cy="32" r="2" fill="#090506" />
+              </svg>
+            </span>
+            <img
+              src="/assets/aistudio/vaalauras_wordmark_c336ebb0.png"
+              alt="VaalAuras"
+              class="brand-wordmark-img"
+              id="brand-wordmark-img"
+              width="136"
+              height="38"
+            />
+            <span id="brand-wordmark-fallback" class="brand-wordmark hidden">VaalAuras</span>
+          </a>
+
+          <nav class="topbar-nav" aria-label="Primary navigation">
+            <button
+              type="button"
+              class="nav-link is-active"
+              data-view="access"
+              aria-current="page"
+            >
+              Get Access
+            </button>
+            <button type="button" class="nav-link" data-view="guide">Guide</button>
+            <button type="button" class="nav-link" data-view="changelog">Changelog</button>
+            <a
+              href="https://discord.gg/GQVy8uUBW"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="nav-link nav-link-external"
+            >
+              Help
+            </a>
+          </nav>
+        </div>
+
+        <div class="topbar-actions">
+          <button
+            type="button"
+            id="topbar-signout-btn"
+            class="btn btn-bronze btn-sm hidden"
+          >
+            Sign Out
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <div id="global-banner" class="alert-banner global-banner hidden" role="status"></div>
+
+      <!-- VIEW 1: GET ACCESS (LOGIN / MEMBER VERIFICATION) -->
+      <section id="view-access" class="view-section view-access-stage" aria-label="Get Access">
+        <div class="portal-center">
+          <div id="portal-signing-warning" class="alert-banner alert-warn hidden">
+            <strong>Configuration needed:</strong> Set <code>SESSION_SIGNING_SECRET</code> in your
+            Cloudflare Worker secrets before signing users in.
+          </div>
+
+          <!-- STATE A: SIGNED OUT (MEMBER VERIFICATION) -->
+          <div id="state-logged-out" class="single-card-wrap">
+            <article class="panel hud-frame">
+              <span class="hud-corner tl" aria-hidden="true"></span>
+              <span class="hud-corner tr" aria-hidden="true"></span>
+              <span class="hud-corner bl" aria-hidden="true"></span>
+              <span class="hud-corner br" aria-hidden="true"></span>
+
+              <p class="eyebrow">Membership Verification</p>
+              <h1 class="display-title">Unlock VaalAuras</h1>
+              <p class="lead-copy">
+                Twitch T1 or Patreon $3 unlocks monthly access; Twitch T2+ or Patreon $5 / $10 unlocks lifetime features.
+              </p>
+
+              <div class="provider-stack">
+                <button type="button" id="btn-twitch-login" class="btn btn-twitch btn-lg">
+                  <svg class="provider-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M4.3 2 2.5 5.4v14.8h5.3V23h3l2.8-2.8h4.2L22 16V2H4.3zm15.9 13.1-2.8 2.8h-4.7l-2.5 2.5v-2.5H5.8V3.9h14.4v11.2zM16.2 7.2h-1.9v5.6h1.9V7.2zm-5 0H9.3v5.6h1.9V7.2z" />
+                  </svg>
+                  <span>Continue with Twitch</span>
+                  <span class="provider-note"><span>T1 Monthly License</span><span>T2+ Lifetime License</span></span>
+                </button>
+
+                <button type="button" id="btn-patreon-login" class="btn btn-patreon btn-lg">
+                  <svg class="provider-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M15.386 2.5c-3.816 0-6.92 3.104-6.92 6.92 0 3.803 3.104 6.899 6.92 6.899 3.805 0 6.9-3.096 6.9-6.899 0-3.816-3.095-6.92-6.9-6.92zM2.214 2.5h3.58v19h-3.58z" />
+                  </svg>
+                  <span>Continue with Patreon</span>
+                  <span id="patreon-tier-note" class="provider-note"><span>$3 Monthly License</span><span>$5+ Lifetime License</span></span>
+                </button>
+              </div>
+
+              <div class="dev-login-wrap">
+                <button
+                  type="button"
+                  id="btn-toggle-dev-login"
+                  class="dev-toggle-link"
+                  aria-expanded="false"
+                  aria-controls="developer-login-form"
+                >
+                  Developer Login
+                </button>
+
+                <form id="developer-login-form" class="dev-login-form hidden" novalidate>
+                  <div class="field-group">
+                    <label for="dev-email" class="field-label">Developer Email</label>
+                    <input
+                      id="dev-email"
+                      name="email"
+                      type="email"
+                      autocomplete="username"
+                      class="text-input"
+                      placeholder="Enter developer email"
+                      required
+                    />
+                  </div>
+                  <div class="field-group">
+                    <label for="dev-password" class="field-label">Password</label>
+                    <input
+                      id="dev-password"
+                      name="password"
+                      type="password"
+                      autocomplete="current-password"
+                      class="text-input"
+                      placeholder="Enter developer password"
+                      required
+                    />
+                  </div>
+                  <p id="dev-login-error" class="form-error hidden" role="alert"></p>
+                  <button type="submit" id="btn-dev-submit" class="btn btn-bronze btn-sm btn-full">
+                    Sign in as Developer
+                  </button>
+                </form>
+              </div>
+            </article>
+          </div>
+
+          <!-- STATE B: VERIFIED & ELIGIBLE -->
+          <div id="state-verified" class="single-card-wrap hidden">
+            <article class="panel hud-frame verified-card">
+              <span class="hud-corner tl" aria-hidden="true"></span>
+              <span class="hud-corner tr" aria-hidden="true"></span>
+              <span class="hud-corner bl" aria-hidden="true"></span>
+              <span class="hud-corner br" aria-hidden="true"></span>
+
+              <div class="member-row">
+                <div class="avatar-box">
+                  <img id="verified-avatar-img" src="" alt="" class="avatar-img hidden" />
+                  <span id="verified-avatar-initials" class="avatar-initials">VA</span>
+                </div>
+                <div class="member-meta">
+                  <h1 id="verified-name" class="member-name">Member</h1>
+                  <p id="verified-summary" class="member-sub">Verified</p>
+                </div>
+              </div>
+
+              <div id="access-kv-warning" class="alert-banner alert-warn hidden">
+                <strong>Cloudflare KV not bound:</strong> Bind a KV namespace named
+                <code>CONTENT_KV</code> (or <code>AUTH_KV</code>) in Worker Settings &rarr; Bindings
+                so user Lifetime Tier 2/$5 &amp; Pro/$10 unlocks are saved permanently across logins.
+              </div>
+
+              <div class="verdict-box verdict-ok">
+                <p id="verified-reason" class="verdict-text">
+                  Access verified. Click Log in below to open VaalAuras.
+                </p>
+                <p class="verdict-time">
+                  Checked <span id="verified-checked-at" class="mono tabular-nums">—</span>
+                </p>
+              </div>
+
+              <div class="primary-cta-row">
+                <button type="button" id="btn-launch-desktop" class="btn btn-crimson btn-xl">
+                  Log in
+                </button>
+                <p class="cta-caption">
+                  Opens the VaalAuras desktop app and unlocks premium features.
+                </p>
+
+                <div class="fallback-row">
+                  <button type="button" id="btn-send-localhost-inline" class="fallback-link-btn">
+                    Desktop app didn't open? Click here.
+                  </button>
+                </div>
+              </div>
+
+              <div class="secondary-actions">
+                <button type="button" id="btn-recheck-verified" class="btn btn-outline btn-sm">
+                  Re-check Subscription
+                </button>
+                <button type="button" id="btn-signout-verified" class="btn btn-ghost btn-sm">
+                  Switch Account
+                </button>
+              </div>
+            </article>
+          </div>
+
+          <!-- STATE C: SIGNED IN BUT NOT ELIGIBLE -->
+          <div id="state-denied" class="single-card-wrap hidden">
+            <article class="panel hud-frame verified-card">
+              <span class="hud-corner tl" aria-hidden="true"></span>
+              <span class="hud-corner tr" aria-hidden="true"></span>
+              <span class="hud-corner bl" aria-hidden="true"></span>
+              <span class="hud-corner br" aria-hidden="true"></span>
+
+              <div class="member-row">
+                <div class="avatar-box">
+                  <img id="denied-avatar-img" src="" alt="" class="avatar-img hidden" />
+                  <span id="denied-avatar-initials" class="avatar-initials">VA</span>
+                </div>
+                <div class="member-meta">
+                  <h1 id="denied-name" class="member-name">Member</h1>
+                  <p id="denied-summary" class="member-sub">Subscription required</p>
+                </div>
+              </div>
+
+              <div class="verdict-box verdict-fail">
+                <p id="denied-reason" class="verdict-text">
+                  No lifetime unlock or active Twitch/Patreon subscription was found.
+                </p>
+                <p class="verdict-time">
+                  Checked <span id="denied-checked-at" class="mono tabular-nums">—</span>
+                </p>
+              </div>
+
+              <div class="denied-links" id="denied-subscribe-links">
+                <a
+                  id="link-subscribe-twitch"
+                  href="https://www.twitch.tv"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="btn btn-twitch btn-sm hidden"
+                >
+                  Subscribe on Twitch
+                </a>
+                <a
+                  id="link-subscribe-patreon"
+                  href="https://www.patreon.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="btn btn-patreon btn-sm hidden"
+                >
+                  Join on Patreon ($3+ Tier)
+                </a>
+              </div>
+
+              <div class="secondary-actions">
+                <button type="button" id="btn-recheck-denied" class="btn btn-crimson btn-sm">
+                  Re-check Subscription
+                </button>
+                <button type="button" id="btn-signout-denied" class="btn btn-outline btn-sm">
+                  Try Another Account
+                </button>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 2: GUIDE (ARTICLES + YOUTUBE VIDEOS) -->
+      <section id="view-guide" class="view-section content-stage hidden" aria-label="Guide">
+        <div class="content-wrap content-wrap-wide">
+          <div class="section-header-row">
+            <div>
+              <h1 class="page-display-title">Guide</h1>
+              <p class="page-subtitle">
+                Articles, setup walkthroughs, and video guides for VaalAuras.
+              </p>
+            </div>
+            <button type="button" id="btn-new-guide" class="btn btn-crimson btn-sm hidden">
+              + New Article
+            </button>
+          </div>
+
+          <div id="guide-kv-warning" class="alert-banner alert-warn hidden">
+            <strong>Cloudflare KV not bound:</strong> Bind a KV namespace named
+            <code>CONTENT_KV</code> in Worker Settings &rarr; Bindings to save guide articles permanently.
+          </div>
+
+          <!-- Developer Guide Article Editor -->
+          <div id="guide-editor-panel" class="panel hud-frame editor-panel hidden">
+            <span class="hud-corner tl" aria-hidden="true"></span>
+            <span class="hud-corner tr" aria-hidden="true"></span>
+            <span class="hud-corner bl" aria-hidden="true"></span>
+            <span class="hud-corner br" aria-hidden="true"></span>
+
+            <div class="editor-head">
+              <h2 id="guide-editor-heading" class="editor-title">New Guide Article</h2>
+              <button type="button" id="btn-cancel-guide-edit" class="btn btn-ghost btn-sm">
+                Cancel
+              </button>
+            </div>
+
+            <form id="guide-editor-form" novalidate>
+              <div class="form-grid-2">
+                <div class="field-group">
+                  <label for="guide-title-input" class="field-label">Article Title</label>
+                  <input
+                    id="guide-title-input"
+                    type="text"
+                    class="text-input"
+                    placeholder="e.g. Setting Up Your First Aura Pack"
+                    required
+                  />
+                </div>
+                <div class="field-group">
+                  <label for="guide-topic-input" class="field-label">Topic</label>
+                  <input
+                    id="guide-topic-input"
+                    type="text"
+                    class="text-input"
+                    placeholder="e.g. Getting Started, Overlays, Hotkeys"
+                  />
+                </div>
+              </div>
+
+              <div class="field-group">
+                <label for="guide-summary-input" class="field-label">Short Summary</label>
+                <input
+                  id="guide-summary-input"
+                  type="text"
+                  class="text-input"
+                  placeholder="Brief 1-sentence overview shown at the top of the article"
+                />
+              </div>
+
+              <div class="field-group">
+                <label for="guide-youtube-input" class="field-label">
+                  Featured YouTube Video URL (optional)
+                </label>
+                <input
+                  id="guide-youtube-input"
+                  type="url"
+                  class="text-input"
+                  placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/..."
+                />
+              </div>
+
+              <div class="field-group">
+                <label for="guide-body-input" class="field-label">Article Content</label>
+                <textarea
+                  id="guide-body-input"
+                  rows="9"
+                  class="text-input textarea-input"
+                  placeholder="## Step 1: Open VaalAuras&#10;- Write your steps or notes here&#10;- Drop any YouTube URL on its own line below to embed a video mid-article&#10;https://www.youtube.com/watch?v=..."
+                ></textarea>
+                <p class="field-hint">
+                  Tip: Start a line with <code>## Section</code> for headings, <code>- item</code>
+                  for bullets, or paste any YouTube URL on its own line to embed a video inside the
+                  article.
+                </p>
+              </div>
+
+              <p id="guide-form-error" class="form-error hidden" role="alert"></p>
+              <div class="editor-actions">
+                <button type="submit" id="btn-save-guide" class="btn btn-crimson btn-sm">
+                  Save Article
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div class="guide-toolbar">
+            <div class="guide-search-wrap">
+              <input
+                id="guide-search-input"
+                type="search"
+                class="text-input"
+                placeholder="Search articles..."
+                aria-label="Search guide articles"
+              />
+            </div>
+            <div id="guide-topic-filters" class="filter-tabs" role="tablist" aria-label="Guide topics"></div>
+          </div>
+
+          <div class="guide-layout">
+            <aside class="guide-sidebar" aria-label="Guide articles">
+              <div id="guide-sidebar-list" class="guide-nav-list"></div>
+            </aside>
+
+            <article id="guide-reader" class="panel guide-reader"></article>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 3: CHANGELOG -->
+      <section id="view-changelog" class="view-section content-stage hidden" aria-label="Changelog">
+        <div class="content-wrap content-wrap-narrow">
+          <div class="changelog-hero">
+            <h1 class="page-display-title">Changelog</h1>
+            <p class="page-subtitle">Everything new in each VaalAuras release.</p>
+
+            <div class="changelog-hero-controls">
+              <div
+                id="changelog-category-filters"
+                class="filter-tabs filter-tabs-center"
+                role="tablist"
+                aria-label="Release categories"
+              ></div>
+              <button type="button" id="btn-new-changelog" class="btn btn-crimson btn-sm hidden">
+                + New Changelog Post
+              </button>
+            </div>
+          </div>
+
+          <div id="changelog-kv-warning" class="alert-banner alert-warn hidden">
+            <strong>Cloudflare KV not bound:</strong> Bind a KV namespace named
+            <code>CONTENT_KV</code> in Worker Settings &rarr; Bindings to save changelog posts permanently.
+          </div>
+
+          <!-- Developer Changelog Post Editor -->
+          <div id="changelog-editor-panel" class="panel hud-frame editor-panel hidden">
+            <span class="hud-corner tl" aria-hidden="true"></span>
+            <span class="hud-corner tr" aria-hidden="true"></span>
+            <span class="hud-corner bl" aria-hidden="true"></span>
+            <span class="hud-corner br" aria-hidden="true"></span>
+
+            <div class="editor-head">
+              <h2 id="changelog-editor-heading" class="editor-title">New Changelog Post</h2>
+              <button type="button" id="btn-cancel-changelog-edit" class="btn btn-ghost btn-sm">
+                Cancel
+              </button>
+            </div>
+
+            <form id="changelog-editor-form" novalidate>
+              <div class="form-grid-3">
+                <div class="field-group">
+                  <label for="cl-version-input" class="field-label">Version</label>
+                  <input
+                    id="cl-version-input"
+                    type="text"
+                    class="text-input mono"
+                    placeholder="e.g. v1.2.0"
+                    required
+                  />
+                </div>
+                <div class="field-group">
+                  <label for="cl-category-input" class="field-label">Category</label>
+                  <input
+                    id="cl-category-input"
+                    type="text"
+                    class="text-input"
+                    placeholder="e.g. Core, Overlays"
+                  />
+                </div>
+                <div class="field-group">
+                  <label for="cl-date-input" class="field-label">Release Date</label>
+                  <input
+                    id="cl-date-input"
+                    type="text"
+                    class="text-input"
+                    placeholder="e.g. 22 November 2026"
+                  />
+                </div>
+              </div>
+
+              <div class="field-group">
+                <label for="cl-summary-input" class="field-label">Release Summary</label>
+                <input
+                  id="cl-summary-input"
+                  type="text"
+                  class="text-input"
+                  placeholder="Short headline summary displayed at the top of the release card"
+                />
+              </div>
+
+              <div class="field-group">
+                <label for="cl-body-input" class="field-label">Patch Notes</label>
+                <textarea
+                  id="cl-body-input"
+                  rows="8"
+                  class="text-input textarea-input"
+                  placeholder="## General &amp; Core&#10;- Added new aura trigger profiles&#10;- Fixed overlay opacity slider&#10;## VaalAuras Desktop&#10;- Improved startup license check"
+                  required
+                ></textarea>
+                <p class="field-hint">
+                  Tip: Start a line with <code>## Section Name</code> to group changes, and
+                  <code>- item</code> for bullet points.
+                </p>
+              </div>
+
+              <p id="cl-form-error" class="form-error hidden" role="alert"></p>
+              <div class="editor-actions">
+                <button type="submit" id="btn-save-changelog" class="btn btn-crimson btn-sm">
+                  Publish Post
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div id="changelog-list" class="changelog-list"></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js?v=20261123-2"></script>
+  </body>
+</html>
