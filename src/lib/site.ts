@@ -1,4 +1,4 @@
-import type { HomeButton, HomeButtonStyle, SiteSettings } from '../types';
+import type { HomeButton, HomeButtonStyle, HomeContent, HomeFeature, SiteSettings } from '../types';
 
 export const DEFAULT_SOCIALS = {
   patreon: 'https://www.patreon.com/SayakaNyokota',
@@ -6,8 +6,31 @@ export const DEFAULT_SOCIALS = {
   discord: 'https://discord.com/invite/GQVy8uUBW',
 };
 
+export const DEFAULT_HOME: HomeContent = {
+  logoUrl: '/assets/vaalauras_logo.png',
+  wordmarkUrl: '/assets/vaalauras_wordmark.png',
+  eyebrow: 'THE PATH OF EXILE OVERLAY',
+  footnote: 'BUILT FOR YOUR BUILD',
+  sectionKicker: 'THE EXPERIENCE',
+  sectionTitle: 'Every moment',
+  sectionHighlight: 'matters.',
+  sectionIntro: 'Your game deserves an interface that stays out of the way until it matters most. Explore VaalAuras and make your overlay your own.',
+  features: [
+    { eyebrow: 'I / AWARENESS', title: 'See what matters.', description: 'Keep important resources and abilities within sight, without letting the interface take over your screen.', icon: 'eye', iconUrl: '', imageUrl: '' },
+    { eyebrow: 'II / CONTROL', title: 'Make it yours.', description: 'Shape your setup around the way you play. Your screen, your priorities, your experience.', icon: 'sliders', iconUrl: '', imageUrl: '' },
+    { eyebrow: 'III / EVOLUTION', title: 'Always improving.', description: 'Follow the changelog as the project evolves, and find walkthroughs when you need a hand.', icon: 'shield', iconUrl: '', imageUrl: '' },
+  ],
+  ctaKicker: 'YOUR NEXT STEP',
+  ctaTitle: 'Ready to enter',
+  ctaHighlight: 'the fray?',
+  ctaDescription: "Get started with the guide, or see what's changed in the latest updates.",
+  guideLabel: 'Explore the guide',
+  changelogLabel: 'View changelog',
+};
+
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   title: 'VaalAuras',
+  home: DEFAULT_HOME,
   tags: [],
   headline: 'Free, high-performance aura tracking overlay for Path of Exile.',
   subline: 'Built for all builds, with ongoing updates and community feedback.',
@@ -49,6 +72,50 @@ export function validateSiteInput(
   const headline = cleanText(raw.headline, 300);
   const subline = cleanText(raw.subline, 300);
   const footer = cleanText(raw.footer, 1000);
+  const rawHome = raw.home && typeof raw.home === 'object' && !Array.isArray(raw.home)
+    ? raw.home as Record<string, unknown> : {};
+  const home = { ...DEFAULT_HOME };
+  for (const key of Object.keys(DEFAULT_HOME) as Array<keyof HomeContent>) {
+    if (key === 'features' || key === 'logoUrl' || key === 'wordmarkUrl') continue;
+    (home as unknown as Record<string, unknown>)[key] = rawHome[key] === undefined ? DEFAULT_HOME[key] : cleanText(rawHome[key], key === 'sectionIntro' || key === 'ctaDescription' ? 800 : 180);
+  }
+  for (const key of ['logoUrl', 'wordmarkUrl'] as const) {
+    const value = typeof rawHome[key] === 'string' ? rawHome[key].trim() : '';
+    const normalized = normalizeLinkUrl(value);
+    if (value && !normalized) return { ok: false, error: `Invalid ${key} image URL.` };
+    home[key] = normalized || DEFAULT_HOME[key];
+  }
+  const features: HomeFeature[] = [];
+  const rawFeatures = Array.isArray(rawHome.features) ? rawHome.features : DEFAULT_HOME.features;
+  if (rawFeatures.length > 8) return { ok: false, error: 'Maximum 8 feature cards.' };
+  for (const entry of rawFeatures) {
+    const item = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {};
+    const title = cleanText(item.title, 100);
+    if (!title) return { ok: false, error: 'Every feature card requires a title.' };
+    const imageValue = typeof item.imageUrl === 'string' ? item.imageUrl.trim() : '';
+    const imageUrl = imageValue ? normalizeLinkUrl(imageValue) : '';
+    if (imageValue && !imageUrl) return { ok: false, error: `Feature card ${features.length + 1} has an invalid image URL.` };
+    const icon = item.icon === 'sliders' || item.icon === 'shield' || item.icon === 'none' || item.icon === 'custom' ? item.icon : 'eye';
+    const rawIconUrl = typeof item.iconUrl === 'string' ? item.iconUrl.trim() : '';
+    let iconUrl = '';
+    if (icon === 'custom') {
+      if (/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(rawIconUrl) && rawIconUrl.length <= 140000) {
+        iconUrl = rawIconUrl;
+      } else {
+        iconUrl = normalizeLinkUrl(rawIconUrl) || '';
+      }
+      if (rawIconUrl && !iconUrl) return { ok: false, error: `Feature card ${features.length + 1} has an invalid custom icon.` };
+    }
+    features.push({
+      title,
+      eyebrow: cleanText(item.eyebrow, 60),
+      imageUrl: imageUrl || '',
+      description: cleanText(item.description, 800),
+      icon,
+      iconUrl,
+    });
+  }
+  home.features = features;
 
   const tags = (Array.isArray(raw.tags) ? raw.tags : [])
     .map((t) => cleanText(t, 40))
@@ -98,5 +165,5 @@ export function validateSiteInput(
     }
   }
 
-  return { ok: true, data: { title, tags, headline, subline, footer, buttons, socials } };
+  return { ok: true, data: { title, home, tags, headline, subline, footer, buttons, socials } };
 }
