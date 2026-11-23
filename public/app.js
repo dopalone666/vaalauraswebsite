@@ -10,6 +10,7 @@
     homeEditorOpen: false,
     homeDraftButtons: [],
     homeDraftFeatures: [],
+    homeDraftImages: { heroImageUrl: '', featureSectionImageUrl: '' },
 
     // Changelog state
     changelogs: [],
@@ -32,6 +33,7 @@
   var DEFAULT_HOME = {
     logoUrl: '/assets/vaalauras_logo.png', wordmarkUrl: '/assets/vaalauras_wordmark.png',
     eyebrow: 'THE PATH OF EXILE OVERLAY', footnote: 'BUILT FOR YOUR BUILD',
+    heroImageUrl: '', featureSectionImageUrl: '',
     sectionKicker: 'THE EXPERIENCE', sectionTitle: 'Every moment', sectionHighlight: 'matters.',
     sectionIntro: 'Your game deserves an interface that stays out of the way until it matters most. Explore VaalAuras and make your overlay your own.',
     features: [
@@ -158,6 +160,84 @@
       };
       reader.readAsDataURL(file);
     });
+  }
+
+  // Section images are resized locally, then saved in the existing admin-protected KV record.
+  function readUploadedSectionImage(file) {
+    return new Promise(function (resolve, reject) {
+      if (!file || !/^image\/(?:png|jpeg|webp)$/.test(file.type)) {
+        reject(new Error('Choose a PNG, JPG, or WebP image.')); return;
+      }
+      if (file.size > 12 * 1024 * 1024) {
+        reject(new Error('Choose an image smaller than 12 MB.')); return;
+      }
+      var reader = new FileReader();
+      reader.onerror = function () { reject(new Error('Could not read the image.')); };
+      reader.onload = function () {
+        var img = new Image();
+        img.onerror = function () { reject(new Error('Could not decode the image.')); };
+        img.onload = function () {
+          var max = 1400;
+          var scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+          var output = '';
+          for (var pass = 0; pass < 4; pass++) {
+            var canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+            canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+            var context = canvas.getContext('2d');
+            if (!context) { reject(new Error('Your browser cannot resize images.')); return; }
+            context.drawImage(img, 0, 0, canvas.width, canvas.height);
+            output = canvas.toDataURL('image/webp', pass === 0 ? .78 : .65);
+            if (!/^data:image\/webp;base64,/.test(output)) output = canvas.toDataURL('image/jpeg', .7);
+            if (output.length <= 750000) { resolve(output); return; }
+            scale *= .73;
+          }
+          reject(new Error('Could not compress image enough. Try a smaller file or paste its URL.'));
+        };
+        img.src = String(reader.result);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function initializeSectionImageEditor(prefix, key) {
+    var input = el(prefix + '-url');
+    var file = el(prefix + '-upload');
+    var clear = el(prefix + '-clear');
+    var preview = el(prefix + '-preview');
+    var status = el(prefix + '-status');
+    function refresh() {
+      var value = state.homeDraftImages[key] || '';
+      var embedded = /^data:image\//.test(value);
+      input.readOnly = embedded;
+      input.value = embedded ? '(uploaded image — saved with page)' : value;
+      if (isSafeIconSource(value)) preview.src = value;
+      else preview.removeAttribute('src');
+      show(preview, isSafeIconSource(value));
+    }
+    input.addEventListener('input', function () {
+      if (!input.readOnly) {
+        state.homeDraftImages[key] = input.value;
+        refresh();
+      }
+    });
+    file.addEventListener('change', async function () {
+      if (!file.files || !file.files[0]) return;
+      file.disabled = true;
+      status.textContent = 'Preparing image...';
+      try {
+        state.homeDraftImages[key] = await readUploadedSectionImage(file.files[0]);
+        status.textContent = 'Image ready. Save changes to publish.';
+        refresh();
+      } catch (err) { status.textContent = err.message; }
+      finally { file.disabled = false; file.value = ''; }
+    });
+    clear.addEventListener('click', function () {
+      state.homeDraftImages[key] = '';
+      status.textContent = 'Image removed. Save changes to publish.';
+      refresh();
+    });
+    return refresh;
   }
 
   async function apiJson(path, options) {
@@ -961,6 +1041,15 @@
       guideLabel: 'home-guide-label', changelogLabel: 'home-changelog-label'
     };
     Object.keys(mapped).forEach(function (key) { setText(mapped[key], home[key] || ''); });
+    [['heroImageUrl', 'home-hero-media', 'home-hero-media-image'],
+     ['featureSectionImageUrl', 'home-feature-media', 'home-feature-media-image']].forEach(function (entry) {
+      var source = home[entry[0]] || '';
+      var visible = isSafeIconSource(source);
+      var image = el(entry[2]);
+      if (visible) image.src = source;
+      else image.removeAttribute('src');
+      show(el(entry[1]), visible);
+    });
     var features = Array.isArray(home.features) ? home.features : DEFAULT_HOME.features;
     var grid = el('home-feature-grid');
     grid.replaceChildren();
@@ -1254,6 +1343,16 @@
     var home = Object.assign({}, DEFAULT_HOME, site.home || {});
     state.homeDraftFeatures = (Array.isArray(home.features) ? home.features : DEFAULT_HOME.features).map(function (f) { return Object.assign({}, f); });
     Object.keys(HOME_FIELDS).forEach(function (key) { el(HOME_FIELDS[key]).value = home[key] || ''; });
+    state.homeDraftImages = {
+      heroImageUrl: home.heroImageUrl || '', featureSectionImageUrl: home.featureSectionImageUrl || ''
+    };
+    if (!state.homeSectionImageRefresh) {
+      state.homeSectionImageRefresh = [
+        initializeSectionImageEditor('home-hero-media', 'heroImageUrl'),
+        initializeSectionImageEditor('home-feature-media', 'featureSectionImageUrl')
+      ];
+    }
+    state.homeSectionImageRefresh.forEach(function (refresh) { refresh(); });
     renderFeatureEditor();
     el('home-title-input').value = site.title || '';
     el('home-tags-input').value = (site.tags || []).join(', ');
@@ -1283,7 +1382,9 @@
       title: el('home-title-input').value,
       home: Object.assign(Object.keys(HOME_FIELDS).reduce(function (result, key) {
         result[key] = el(HOME_FIELDS[key]).value; return result;
-      }, {}), { features: state.homeDraftFeatures }),
+      }, {}), { features: state.homeDraftFeatures,
+        heroImageUrl: state.homeDraftImages.heroImageUrl,
+        featureSectionImageUrl: state.homeDraftImages.featureSectionImageUrl }),
       tags: el('home-tags-input').value
         .split(',')
         .map(function (t) { return t.trim(); })

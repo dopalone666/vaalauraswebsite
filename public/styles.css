@@ -1433,3 +1433,22 @@ body::after {
   -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 54%, transparent 100%);
   mask-image: linear-gradient(to bottom, #000 0%, #000 54%, transparent 100%);
 }
+
+/* Optional section-level images: both flow naturally under their own captions. */
+.section-showcase { margin: 28px auto 0; width: min(100%, 900px); border: 1px solid rgba(179,121,78,.37); border-radius: 8px; overflow: hidden; background: #110e10; box-shadow: 0 25px 65px rgba(0,0,0,.35); }
+.section-showcase img { display: block; max-width: 100%; width: 100%; height: auto; object-fit: contain; }
+.hero-showcase { width: min(100%, 740px); margin-top: 32px; }
+.feature-showcase { margin: -12px auto 38px; }
+.section-media-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.section-media-controls input[type=file] { flex: 1 1 250px; min-width: 0; max-width: 460px; }
+.section-media-preview { display: block; max-width: min(100%, 410px); max-height: 260px; width: auto; height: auto; object-fit: contain; border: 1px solid #6b4e3e; border-radius: 5px; background: #0b090a; }
+.section-media-preview.hidden { display: none; }
+
+/* Hero polish: remove the hard triangular rays behind the logo.
+   Keep the ambient bronze/crimson glow without visible spokes. */
+.hero-aura {
+  background:
+    radial-gradient(circle at 50% 44%, rgba(205, 118, 71, 0.17) 0%, rgba(155, 59, 45, 0.08) 26%, transparent 66%),
+    radial-gradient(circle at 50% 55%, rgba(116, 35, 37, 0.10) 0%, transparent 72%);
+  opacity: .65;
+}

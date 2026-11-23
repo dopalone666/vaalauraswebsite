@@ -72,6 +72,7 @@
           <p class="hero-subline" id="hero-subline"></p>
           <div class="hero-buttons" id="hero-buttons"></div>
           <div class="hero-footnote"><span class="hero-footnote-line"></span> <span id="home-hero-footnote">BUILT FOR YOUR BUILD</span> <span class="hero-footnote-line"></span></div>
+          <figure id="home-hero-media" class="section-showcase hero-showcase hidden"><img id="home-hero-media-image" alt="VaalAuras hero showcase" loading="lazy" /></figure>
           <button type="button" id="btn-edit-home" class="btn btn-outline btn-sm hidden">Edit page</button>
         </div>
 
@@ -79,6 +80,7 @@
           <div class="section-kicker"><span class="kicker-dash"></span> <span id="home-section-kicker"></span> <span class="kicker-dash"></span></div>
           <h2 class="home-section-title"><span id="home-section-title"></span> <em id="home-section-highlight"></em></h2>
           <p class="home-section-intro" id="home-section-intro"></p>
+          <figure id="home-feature-media" class="section-showcase feature-showcase hidden"><img id="home-feature-media-image" alt="VaalAuras feature showcase" loading="lazy" /></figure>
           <div class="feature-grid" id="home-feature-grid"></div>
           <div class="explore-panel" id="home-explore-panel">
             <div class="explore-copy"><span class="section-kicker" id="home-cta-kicker"></span><h2><span id="home-cta-title"></span> <em id="home-cta-highlight"></em></h2><p id="home-cta-description"></p></div>
@@ -121,6 +123,13 @@
             <div class="field-group"><label for="home-wordmark-url" class="field-label">Wordmark image URL</label><input id="home-wordmark-url" class="text-input" type="text" maxlength="2048" /></div>
             <div class="field-group"><label for="home-eyebrow" class="field-label">Top hero caption</label><input id="home-eyebrow" class="text-input" maxlength="180" /></div>
             <div class="field-group"><label for="home-footnote" class="field-label">Hero bottom caption</label><input id="home-footnote" class="text-input" maxlength="180" /></div>
+            <div class="field-group section-media-editor">
+              <label for="home-hero-media-url" class="field-label">Image below hero caption (optional)</label>
+              <input id="home-hero-media-url" type="text" class="text-input" maxlength="2048" placeholder="https://... or /assets/hero.png" />
+              <div class="section-media-controls"><input id="home-hero-media-upload" type="file" class="text-input" accept="image/png,image/jpeg,image/webp" aria-label="Upload hero section image" /><button type="button" id="home-hero-media-clear" class="btn btn-ghost btn-sm">Remove image</button></div>
+              <img id="home-hero-media-preview" class="section-media-preview hidden" alt="Hero section image preview" />
+              <p id="home-hero-media-status" class="field-hint">Paste an image URL or upload a PNG, JPG, or WebP. Leave empty for no image.</p>
+            </div>
             <div class="editor-subheading">Feature section</div>
             <div class="field-group"><label for="home-section-kicker-input" class="field-label">Section caption</label><input id="home-section-kicker-input" class="text-input" maxlength="180" /></div>
             <div class="form-grid-2">
@@ -128,6 +137,13 @@
               <div class="field-group"><label for="home-section-highlight-input" class="field-label">Highlighted title words</label><input id="home-section-highlight-input" class="text-input" maxlength="180" /></div>
             </div>
             <div class="field-group"><label for="home-section-intro-input" class="field-label">Section description</label><textarea id="home-section-intro-input" class="text-input textarea-input" maxlength="800" rows="3"></textarea></div>
+            <div class="field-group section-media-editor">
+              <label for="home-feature-media-url" class="field-label">Image below feature section description (optional)</label>
+              <input id="home-feature-media-url" type="text" class="text-input" maxlength="2048" placeholder="https://... or /assets/features.png" />
+              <div class="section-media-controls"><input id="home-feature-media-upload" type="file" class="text-input" accept="image/png,image/jpeg,image/webp" aria-label="Upload feature section image" /><button type="button" id="home-feature-media-clear" class="btn btn-ghost btn-sm">Remove image</button></div>
+              <img id="home-feature-media-preview" class="section-media-preview hidden" alt="Feature section image preview" />
+              <p id="home-feature-media-status" class="field-hint">Paste an image URL or upload a PNG, JPG, or WebP. Leave empty for no image.</p>
+            </div>
             <div class="field-group"><span class="field-label">Feature cards (drag-free reorder with arrows, up to 8)</span><div id="home-feature-editor" class="feature-editor-list"></div><button type="button" id="btn-add-feature" class="btn btn-outline btn-sm">+ Add feature card</button></div>
             <div class="editor-subheading">Bottom call-to-action</div>
             <div class="field-group"><label for="home-cta-kicker-input" class="field-label">Caption</label><input id="home-cta-kicker-input" class="text-input" maxlength="180" /></div>

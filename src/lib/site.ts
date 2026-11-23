@@ -11,6 +11,8 @@ export const DEFAULT_HOME: HomeContent = {
   wordmarkUrl: '/assets/vaalauras_wordmark.png',
   eyebrow: 'THE PATH OF EXILE OVERLAY',
   footnote: 'BUILT FOR YOUR BUILD',
+  heroImageUrl: '',
+  featureSectionImageUrl: '',
   sectionKicker: 'THE EXPERIENCE',
   sectionTitle: 'Every moment',
   sectionHighlight: 'matters.',
@@ -76,7 +78,7 @@ export function validateSiteInput(
     ? raw.home as Record<string, unknown> : {};
   const home = { ...DEFAULT_HOME };
   for (const key of Object.keys(DEFAULT_HOME) as Array<keyof HomeContent>) {
-    if (key === 'features' || key === 'logoUrl' || key === 'wordmarkUrl') continue;
+    if (key === 'features' || key === 'logoUrl' || key === 'wordmarkUrl' || key === 'heroImageUrl' || key === 'featureSectionImageUrl') continue;
     (home as unknown as Record<string, unknown>)[key] = rawHome[key] === undefined ? DEFAULT_HOME[key] : cleanText(rawHome[key], key === 'sectionIntro' || key === 'ctaDescription' ? 800 : 180);
   }
   for (const key of ['logoUrl', 'wordmarkUrl'] as const) {
@@ -84,6 +86,17 @@ export function validateSiteInput(
     const normalized = normalizeLinkUrl(value);
     if (value && !normalized) return { ok: false, error: `Invalid ${key} image URL.` };
     home[key] = normalized || DEFAULT_HOME[key];
+  }
+  for (const key of ['heroImageUrl', 'featureSectionImageUrl'] as const) {
+    const value = typeof rawHome[key] === 'string' ? rawHome[key].trim() : '';
+    if (!value) { home[key] = ''; continue; }
+    if (/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value) && value.length <= 750000) {
+      home[key] = value;
+      continue;
+    }
+    const normalized = normalizeLinkUrl(value);
+    if (!normalized) return { ok: false, error: `Invalid ${key}. Use an image URL or upload a PNG, JPG, or WebP.` };
+    home[key] = normalized;
   }
   const features: HomeFeature[] = [];
   const rawFeatures = Array.isArray(rawHome.features) ? rawHome.features : DEFAULT_HOME.features;

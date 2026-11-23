@@ -50,6 +50,8 @@ export interface HomeContent {
   wordmarkUrl: string;
   eyebrow: string;
   footnote: string;
+  heroImageUrl: string;
+  featureSectionImageUrl: string;
   sectionKicker: string;
   sectionTitle: string;
   sectionHighlight: string;
