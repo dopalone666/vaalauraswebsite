@@ -5,7 +5,7 @@ import {
   validateChangelogInput,
   validateGuideInput,
 } from './src/lib/content';
-import { DEFAULT_SITE_SETTINGS, validateSiteInput } from './src/lib/site';
+import { DEFAULT_HOME, DEFAULT_SITE_SETTINGS, validateSiteInput } from './src/lib/site';
 import {
   constantTimeEqualStringWeb,
   openPayloadWeb,
@@ -208,6 +208,7 @@ async function loadSite(env: WorkerEnv): Promise<SiteSettings> {
     ...DEFAULT_SITE_SETTINGS,
     ...stored,
     socials: { ...DEFAULT_SITE_SETTINGS.socials, ...(stored.socials || {}) },
+    home: { ...DEFAULT_HOME, ...(stored.home || {}), features: Array.isArray(stored.home?.features) ? stored.home.features : DEFAULT_HOME.features },
     buttons: Array.isArray(stored.buttons) ? stored.buttons : DEFAULT_SITE_SETTINGS.buttons,
     tags: Array.isArray(stored.tags) ? stored.tags : DEFAULT_SITE_SETTINGS.tags,
   };

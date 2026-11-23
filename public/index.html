@@ -64,41 +64,25 @@
       <section id="view-home" class="view-section home-stage" aria-label="Home">
         <div class="hero-aura" aria-hidden="true"></div>
         <div class="hero">
-          <div class="hero-eyebrow"><span class="eyebrow-spark"></span> THE PATH OF EXILE OVERLAY <span class="eyebrow-spark"></span></div>
+          <div class="hero-eyebrow"><span class="eyebrow-spark"></span> <span id="home-hero-eyebrow">THE PATH OF EXILE OVERLAY</span> <span class="eyebrow-spark"></span></div>
           <img src="/assets/vaalauras_logo.png" alt="" class="hero-logo" id="hero-logo" width="120" height="120" />
           <h1 class="hero-title" id="hero-title"><img src="/assets/vaalauras_wordmark.png" class="hero-wordmark" alt="VaalAuras" width="768" height="214" /></h1>
           <div class="hero-tags hidden" id="hero-tags"></div>
           <p class="hero-headline" id="hero-headline"></p>
           <p class="hero-subline" id="hero-subline"></p>
           <div class="hero-buttons" id="hero-buttons"></div>
-          <div class="hero-footnote"><span class="hero-footnote-line"></span> BUILT FOR YOUR BUILD <span class="hero-footnote-line"></span></div>
+          <div class="hero-footnote"><span class="hero-footnote-line"></span> <span id="home-hero-footnote">BUILT FOR YOUR BUILD</span> <span class="hero-footnote-line"></span></div>
           <button type="button" id="btn-edit-home" class="btn btn-outline btn-sm hidden">Edit page</button>
         </div>
 
         <div class="home-content" aria-label="Explore VaalAuras">
-          <div class="section-kicker"><span class="kicker-dash"></span> THE EXPERIENCE <span class="kicker-dash"></span></div>
-          <h2 class="home-section-title">Every moment <em>matters.</em></h2>
-          <p class="home-section-intro">Your game deserves an interface that stays out of the way until it matters most. Explore VaalAuras and make your overlay your own.</p>
-          <div class="feature-grid">
-            <article class="feature-card">
-              <div class="feature-number">I / AWARENESS</div>
-              <div class="feature-icon" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M5 24s7-11 19-11 19 11 19 11-7 11-19 11S5 24 5 24Z"/><circle cx="24" cy="24" r="7"/><circle cx="24" cy="24" r="2" fill="currentColor" stroke="none"/><path d="M24 4v5M24 39v5M4 24h5M39 24h5"/></svg></div>
-              <h3>See what matters.</h3><p>Keep important resources and abilities within sight, without letting the interface take over your screen.</p>
-            </article>
-            <article class="feature-card">
-              <div class="feature-number">II / CONTROL</div>
-              <div class="feature-icon" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M8 12h32M8 24h32M8 36h32"/><circle cx="18" cy="12" r="4" fill="#141011"/><circle cx="32" cy="24" r="4" fill="#141011"/><circle cx="21" cy="36" r="4" fill="#141011"/></svg></div>
-              <h3>Make it yours.</h3><p>Shape your setup around the way you play. Your screen, your priorities, your experience.</p>
-            </article>
-            <article class="feature-card">
-              <div class="feature-number">III / EVOLUTION</div>
-              <div class="feature-icon" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M24 4 39 12v17L24 44 9 29V12L24 4Z"/><path d="m16 24 6 6 12-13"/><path d="M24 4v8M9 12l8 5M39 12l-8 5"/></svg></div>
-              <h3>Always improving.</h3><p>Follow the changelog as the project evolves, and find walkthroughs when you need a hand.</p>
-            </article>
-          </div>
-          <div class="explore-panel">
-            <div class="explore-copy"><span class="section-kicker">YOUR NEXT STEP</span><h2>Ready to enter <em>the fray?</em></h2><p>Get started with the guide, or see what's changed in the latest updates.</p></div>
-            <div class="explore-actions"><button type="button" class="btn explore-btn nav-link" data-view="guide">Explore the guide <span aria-hidden="true">↗</span></button><button type="button" class="btn explore-btn explore-btn-secondary nav-link" data-view="changelog">View changelog <span aria-hidden="true">↗</span></button></div>
+          <div class="section-kicker"><span class="kicker-dash"></span> <span id="home-section-kicker"></span> <span class="kicker-dash"></span></div>
+          <h2 class="home-section-title"><span id="home-section-title"></span> <em id="home-section-highlight"></em></h2>
+          <p class="home-section-intro" id="home-section-intro"></p>
+          <div class="feature-grid" id="home-feature-grid"></div>
+          <div class="explore-panel" id="home-explore-panel">
+            <div class="explore-copy"><span class="section-kicker" id="home-cta-kicker"></span><h2><span id="home-cta-title"></span> <em id="home-cta-highlight"></em></h2><p id="home-cta-description"></p></div>
+            <div class="explore-actions"><button type="button" class="btn explore-btn nav-link" data-view="guide"><span id="home-guide-label"></span> <span aria-hidden="true">↗</span></button><button type="button" class="btn explore-btn explore-btn-secondary nav-link" data-view="changelog"><span id="home-changelog-label"></span> <span aria-hidden="true">↗</span></button></div>
           </div>
         </div>
 
@@ -132,6 +116,24 @@
               <input id="home-subline-input" type="text" class="text-input" maxlength="300" />
             </div>
 
+            <div class="editor-subheading">Hero appearance &amp; text</div>
+            <div class="field-group"><label for="home-logo-url" class="field-label">Logo image URL</label><input id="home-logo-url" class="text-input" type="text" maxlength="2048" /><p class="field-hint">Use an uploaded image path (e.g. /assets/logo.png) or a full HTTPS image URL.</p></div>
+            <div class="field-group"><label for="home-wordmark-url" class="field-label">Wordmark image URL</label><input id="home-wordmark-url" class="text-input" type="text" maxlength="2048" /></div>
+            <div class="field-group"><label for="home-eyebrow" class="field-label">Top hero caption</label><input id="home-eyebrow" class="text-input" maxlength="180" /></div>
+            <div class="field-group"><label for="home-footnote" class="field-label">Hero bottom caption</label><input id="home-footnote" class="text-input" maxlength="180" /></div>
+            <div class="editor-subheading">Feature section</div>
+            <div class="field-group"><label for="home-section-kicker-input" class="field-label">Section caption</label><input id="home-section-kicker-input" class="text-input" maxlength="180" /></div>
+            <div class="form-grid-2">
+              <div class="field-group"><label for="home-section-title-input" class="field-label">Section title</label><input id="home-section-title-input" class="text-input" maxlength="180" /></div>
+              <div class="field-group"><label for="home-section-highlight-input" class="field-label">Highlighted title words</label><input id="home-section-highlight-input" class="text-input" maxlength="180" /></div>
+            </div>
+            <div class="field-group"><label for="home-section-intro-input" class="field-label">Section description</label><textarea id="home-section-intro-input" class="text-input textarea-input" maxlength="800" rows="3"></textarea></div>
+            <div class="field-group"><span class="field-label">Feature cards (drag-free reorder with arrows, up to 8)</span><div id="home-feature-editor" class="feature-editor-list"></div><button type="button" id="btn-add-feature" class="btn btn-outline btn-sm">+ Add feature card</button></div>
+            <div class="editor-subheading">Bottom call-to-action</div>
+            <div class="field-group"><label for="home-cta-kicker-input" class="field-label">Caption</label><input id="home-cta-kicker-input" class="text-input" maxlength="180" /></div>
+            <div class="form-grid-2"><div class="field-group"><label for="home-cta-title-input" class="field-label">Heading</label><input id="home-cta-title-input" class="text-input" maxlength="180" /></div><div class="field-group"><label for="home-cta-highlight-input" class="field-label">Highlighted heading words</label><input id="home-cta-highlight-input" class="text-input" maxlength="180" /></div></div>
+            <div class="field-group"><label for="home-cta-description-input" class="field-label">Description</label><textarea id="home-cta-description-input" class="text-input textarea-input" maxlength="800" rows="3"></textarea></div>
+            <div class="form-grid-2"><div class="field-group"><label for="home-guide-label-input" class="field-label">Guide button text</label><input id="home-guide-label-input" class="text-input" maxlength="180" /></div><div class="field-group"><label for="home-changelog-label-input" class="field-label">Changelog button text</label><input id="home-changelog-label-input" class="text-input" maxlength="180" /></div></div>
             <div class="field-group">
               <span class="field-label">Buttons (first one is the main Download button)</span>
               <div id="home-buttons-editor" class="btn-editor-list"></div>

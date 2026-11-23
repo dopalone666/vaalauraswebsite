@@ -60,3 +60,20 @@ test('footer is plain text, optional, and length-limited', () => {
   assert.equal(limited.ok, true);
   if (limited.ok) assert.equal(limited.data.footer.length, 1000);
 });
+
+test('home sections, feature order and image links are validated', () => {
+  const saved = validateSiteInput({ title: 'VaalAuras', home: { eyebrow: 'CUSTOM', features: [
+    { title: 'One', eyebrow: 'FIRST', description: 'Description', icon: 'shield' },
+    { title: 'Two', icon: 'sliders' }
+  ], logoUrl: '/assets/logo.png', wordmarkUrl: 'https://example.com/wordmark.png' } }, id);
+  assert.equal(saved.ok, true);
+  if (saved.ok) {
+    assert.equal(saved.data.home.eyebrow, 'CUSTOM');
+    assert.deepEqual(saved.data.home.features.map(f => f.title), ['One', 'Two']);
+    assert.equal(saved.data.home.wordmarkUrl, 'https://example.com/wordmark.png');
+  }
+  const bad = validateSiteInput({ title: 'VaalAuras', home: { logoUrl: 'javascript:alert(1)' } }, id);
+  assert.equal(bad.ok, false);
+  const tooMany = validateSiteInput({ title: 'VaalAuras', home: { features: Array(9).fill({ title: 'Card' }) } }, id);
+  assert.equal(tooMany.ok, false);
+});

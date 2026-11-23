@@ -9,6 +9,7 @@
     siteStorageReady: true,
     homeEditorOpen: false,
     homeDraftButtons: [],
+    homeDraftFeatures: [],
 
     // Changelog state
     changelogs: [],
@@ -28,8 +29,38 @@
     guideEditorOpen: false,
   };
 
+  var DEFAULT_HOME = {
+    logoUrl: '/assets/vaalauras_logo.png', wordmarkUrl: '/assets/vaalauras_wordmark.png',
+    eyebrow: 'THE PATH OF EXILE OVERLAY', footnote: 'BUILT FOR YOUR BUILD',
+    sectionKicker: 'THE EXPERIENCE', sectionTitle: 'Every moment', sectionHighlight: 'matters.',
+    sectionIntro: 'Your game deserves an interface that stays out of the way until it matters most. Explore VaalAuras and make your overlay your own.',
+    features: [
+      { eyebrow: 'I / AWARENESS', title: 'See what matters.', description: 'Keep important resources and abilities within sight, without letting the interface take over your screen.', icon: 'eye' },
+      { eyebrow: 'II / CONTROL', title: 'Make it yours.', description: 'Shape your setup around the way you play. Your screen, your priorities, your experience.', icon: 'sliders' },
+      { eyebrow: 'III / EVOLUTION', title: 'Always improving.', description: 'Follow the changelog as the project evolves, and find walkthroughs when you need a hand.', icon: 'shield' }
+    ],
+    ctaKicker: 'YOUR NEXT STEP', ctaTitle: 'Ready to enter', ctaHighlight: 'the fray?',
+    ctaDescription: "Get started with the guide, or see what's changed in the latest updates.",
+    guideLabel: 'Explore the guide', changelogLabel: 'View changelog'
+  };
+  var HOME_FIELDS = {
+    logoUrl: 'home-logo-url', wordmarkUrl: 'home-wordmark-url', eyebrow: 'home-eyebrow',
+    footnote: 'home-footnote', sectionKicker: 'home-section-kicker-input',
+    sectionTitle: 'home-section-title-input', sectionHighlight: 'home-section-highlight-input',
+    sectionIntro: 'home-section-intro-input', ctaKicker: 'home-cta-kicker-input',
+    ctaTitle: 'home-cta-title-input', ctaHighlight: 'home-cta-highlight-input',
+    ctaDescription: 'home-cta-description-input', guideLabel: 'home-guide-label-input',
+    changelogLabel: 'home-changelog-label-input'
+  };
+  var ICON_SVGS = {
+    eye: '<svg viewBox="0 0 48 48" fill="none"><path d="M5 24s7-11 19-11 19 11 19 11-7 11-19 11S5 24 5 24Z"/><circle cx="24" cy="24" r="7"/><circle cx="24" cy="24" r="2" fill="currentColor" stroke="none"/><path d="M24 4v5M24 39v5M4 24h5M39 24h5"/></svg>',
+    sliders: '<svg viewBox="0 0 48 48" fill="none"><path d="M8 12h32M8 24h32M8 36h32"/><circle cx="18" cy="12" r="4" fill="#141011"/><circle cx="32" cy="24" r="4" fill="#141011"/><circle cx="21" cy="36" r="4" fill="#141011"/></svg>',
+    shield: '<svg viewBox="0 0 48 48" fill="none"><path d="M24 4 39 12v17L24 44 9 29V12L24 4Z"/><path d="m16 24 6 6 12-13"/><path d="M24 4v8M9 12l8 5M39 12l-8 5"/></svg>'
+  };
+
   var DEFAULT_SITE = {
     title: 'VaalAuras',
+    home: DEFAULT_HOME,
     tags: [],
     headline: '',
     subline: '',
@@ -870,7 +901,36 @@
 
   function renderHome() {
     var site = currentSite();
+    var home = Object.assign({}, DEFAULT_HOME, site.home || {});
+    var heroLogo = el('hero-logo');
+    heroLogo.src = isSafeHref(home.logoUrl) ? home.logoUrl : DEFAULT_HOME.logoUrl;
     var heroWordmark = el('hero-title').querySelector('img');
+    heroWordmark.src = isSafeHref(home.wordmarkUrl) ? home.wordmarkUrl : DEFAULT_HOME.wordmarkUrl;
+    document.querySelectorAll('.brand-logo, .footer-brand img').forEach(function (img) { img.src = heroLogo.src; });
+    document.querySelectorAll('.brand-wordmark-img').forEach(function (img) { img.src = heroWordmark.src; });
+    var mapped = {
+      eyebrow: 'home-hero-eyebrow', footnote: 'home-hero-footnote',
+      sectionKicker: 'home-section-kicker', sectionTitle: 'home-section-title',
+      sectionHighlight: 'home-section-highlight', sectionIntro: 'home-section-intro',
+      ctaKicker: 'home-cta-kicker', ctaTitle: 'home-cta-title',
+      ctaHighlight: 'home-cta-highlight', ctaDescription: 'home-cta-description',
+      guideLabel: 'home-guide-label', changelogLabel: 'home-changelog-label'
+    };
+    Object.keys(mapped).forEach(function (key) { setText(mapped[key], home[key] || ''); });
+    var features = Array.isArray(home.features) ? home.features : DEFAULT_HOME.features;
+    var grid = el('home-feature-grid');
+    grid.replaceChildren();
+    features.forEach(function (feature) {
+      var card = document.createElement('article'); card.className = 'feature-card';
+      var eyebrow = document.createElement('div'); eyebrow.className = 'feature-number'; eyebrow.textContent = feature.eyebrow || '';
+      var icon = document.createElement('div'); icon.className = 'feature-icon'; icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = ICON_SVGS[feature.icon] || ICON_SVGS.eye; // Trusted local SVG templates only.
+      var heading = document.createElement('h3'); heading.textContent = feature.title || '';
+      var desc = document.createElement('p'); desc.textContent = feature.description || '';
+      card.append(eyebrow, icon, heading, desc); grid.appendChild(card);
+    });
+    show(el('home-explore-panel'), Boolean(home.ctaKicker || home.ctaTitle || home.ctaHighlight || home.ctaDescription));
+
     if (heroWordmark) heroWordmark.alt = site.title || 'VaalAuras';
     setText('site-footer-text', site.footer || '');
     setText('hero-headline', site.headline || '');
@@ -1005,12 +1065,60 @@
     el('btn-add-home-button').disabled = state.homeDraftButtons.length >= 8;
   }
 
+  function buildHomeField(label, value, max, multiline, onChange) {
+    var wrapper = document.createElement('div'); wrapper.className = 'field-group';
+    var lbl = document.createElement('label'); lbl.className = 'field-label'; lbl.textContent = label;
+    var input = document.createElement(multiline ? 'textarea' : 'input');
+    input.className = 'text-input' + (multiline ? ' textarea-input' : '');
+    input.maxLength = max; input.value = value || '';
+    if (multiline) input.rows = 3;
+    input.addEventListener('input', function () { onChange(input.value); });
+    lbl.appendChild(input); wrapper.appendChild(lbl);
+    return wrapper;
+  }
+
+  function renderFeatureEditor() {
+    var wrap = el('home-feature-editor'); wrap.replaceChildren();
+    state.homeDraftFeatures.forEach(function (f, index) {
+      var card = document.createElement('div'); card.className = 'feature-editor-card';
+      var top = document.createElement('div'); top.className = 'feature-editor-top';
+      var name = document.createElement('strong'); name.textContent = 'Card ' + (index + 1);
+      var actions = document.createElement('div'); actions.className = 'feature-editor-actions';
+      [['↑', -1, 'Move up'], ['↓', 1, 'Move down'], ['×', 0, 'Delete card']].forEach(function (action) {
+        var btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn btn-ghost btn-sm';
+        btn.textContent = action[0]; btn.title = action[2]; btn.setAttribute('aria-label', action[2] + ' ' + (index + 1));
+        btn.disabled = action[1] !== 0 && (index + action[1] < 0 || index + action[1] >= state.homeDraftFeatures.length);
+        btn.addEventListener('click', function () {
+          if (!action[1]) state.homeDraftFeatures.splice(index, 1);
+          else { var swap = index + action[1]; var old = state.homeDraftFeatures[swap]; state.homeDraftFeatures[swap] = f; state.homeDraftFeatures[index] = old; }
+          renderFeatureEditor();
+        }); actions.appendChild(btn);
+      });
+      top.append(name, actions); card.appendChild(top);
+      card.appendChild(buildHomeField('Small caption', f.eyebrow, 60, false, function (v) { f.eyebrow = v; }));
+      card.appendChild(buildHomeField('Title', f.title, 100, false, function (v) { f.title = v; }));
+      card.appendChild(buildHomeField('Description', f.description, 800, true, function (v) { f.description = v; }));
+      var iconLabel = document.createElement('label'); iconLabel.className = 'field-label'; iconLabel.textContent = 'Icon';
+      var select = document.createElement('select'); select.className = 'text-input';
+      [['eye', 'Eye / awareness'], ['sliders', 'Controls'], ['shield', 'Shield / evolution']].forEach(function (item) {
+        var option = document.createElement('option'); option.value = item[0]; option.textContent = item[1]; option.selected = f.icon === item[0]; select.appendChild(option);
+      });
+      select.addEventListener('change', function () { f.icon = select.value; });
+      iconLabel.appendChild(select); card.appendChild(iconLabel); wrap.appendChild(card);
+    });
+    el('btn-add-feature').disabled = state.homeDraftFeatures.length >= 8;
+  }
+
   function openHomeEditor() {
     var site = currentSite();
     state.homeEditorOpen = true;
     state.homeDraftButtons = (site.buttons || []).map(function (b) {
       return { id: b.id, label: b.label, url: b.url, style: b.style === 'secondary' ? 'secondary' : 'primary' };
     });
+    var home = Object.assign({}, DEFAULT_HOME, site.home || {});
+    state.homeDraftFeatures = (Array.isArray(home.features) ? home.features : DEFAULT_HOME.features).map(function (f) { return Object.assign({}, f); });
+    Object.keys(HOME_FIELDS).forEach(function (key) { el(HOME_FIELDS[key]).value = home[key] || ''; });
+    renderFeatureEditor();
     el('home-title-input').value = site.title || '';
     el('home-tags-input').value = (site.tags || []).join(', ');
     el('home-headline-input').value = site.headline || '';
@@ -1037,6 +1145,9 @@
     setHomeError('');
     var payload = {
       title: el('home-title-input').value,
+      home: Object.assign(Object.keys(HOME_FIELDS).reduce(function (result, key) {
+        result[key] = el(HOME_FIELDS[key]).value; return result;
+      }, {}), { features: state.homeDraftFeatures }),
       tags: el('home-tags-input').value
         .split(',')
         .map(function (t) { return t.trim(); })
@@ -1204,6 +1315,12 @@
       if (state.homeDraftButtons.length >= 8) return;
       state.homeDraftButtons.push({ id: '', label: 'New button', url: '', style: 'secondary' });
       renderHomeButtonRows();
+    });
+
+    el('btn-add-feature').addEventListener('click', function () {
+      if (state.homeDraftFeatures.length >= 8) return;
+      state.homeDraftFeatures.push({ eyebrow: '', title: 'New feature', description: '', icon: 'eye' });
+      renderFeatureEditor();
     });
 
     // Guide events

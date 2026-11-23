@@ -1281,3 +1281,14 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 @media(max-width:760px){.topbar-inner{min-height:auto;flex-wrap:wrap;gap:10px}.topbar-left{width:100%;justify-content:space-between;flex-wrap:wrap}.topbar-actions{width:100%;justify-content:space-between}.topbar-nav{gap:2px}.topbar-nav .nav-link{padding:10px;font-size:.75rem}.brand-wordmark-img{height:34px}.brand-logo{width:32px;height:32px}.hero{padding-top:64px}.feature-grid{grid-template-columns:1fr}.feature-card{min-height:0;padding:25px 28px}.explore-panel{flex-direction:column;align-items:flex-start}.home-content{margin-top:70px}.content-stage{padding-top:40px}.footer-top{flex-wrap:wrap}}
 @media(max-width:480px){.topbar-inner{padding:10px 12px}.brand-wordmark-img{height:28px;max-width:125px}.topbar-nav .nav-link{padding:9px 7px;font-size:.69rem}.social-btn{width:31px;height:31px}.home-stage{padding-inline:16px}.hero{padding:49px 0 20px}.hero-eyebrow{font-size:8px;letter-spacing:.14em}.hero-logo{width:127px;height:127px}.hero-title{width:min(100%,365px)}.hero-headline{font-size:1.19rem}.hero-subline{font-size:.9rem}.hero-buttons{width:100%}.hero-buttons .btn-xl{width:100%;min-width:0}.home-section-intro{font-size:.9rem}.feature-card{padding:25px}.explore-panel{padding:25px 23px}.explore-actions{width:100%}.explore-btn{width:100%;justify-content:space-between}.site-footer{padding-inline:16px}.footer-nav{gap:10px}.footer-link{font-size:.69rem}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.hero-logo{animation:none}.feature-card:hover,.btn:hover{transform:none}}
+
+/* Admin full-home editor */
+.editor-subheading{font:600 1.18rem var(--font-display);color:#e9bb86;letter-spacing:.02em;border-bottom:1px solid #644530;margin:30px 0 19px;padding-bottom:10px}
+.feature-editor-list{display:grid;gap:14px;margin:12px 0}
+.feature-editor-card{border:1px solid #624938;background:#170f11;padding:20px;border-radius:5px;display:grid;gap:10px}
+.feature-editor-top{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#d5ae82}
+.feature-editor-actions{display:flex;gap:5px}
+.feature-editor-card .field-group{margin:0}
+.feature-editor-card textarea{resize:vertical}
+@media(min-width:900px){.feature-editor-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.feature-editor-card{padding:14px}.feature-editor-actions{gap:1px}}
