@@ -38,9 +38,11 @@ export interface SocialLinks {
 
 export interface HomeFeature {
   eyebrow: string;
+  imageUrl: string;
   title: string;
   description: string;
-  icon: 'eye' | 'sliders' | 'shield';
+  icon: 'eye' | 'sliders' | 'shield' | 'none' | 'custom';
+  iconUrl: string;
 }
 
 export interface HomeContent {

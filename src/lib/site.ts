@@ -16,9 +16,9 @@ export const DEFAULT_HOME: HomeContent = {
   sectionHighlight: 'matters.',
   sectionIntro: 'Your game deserves an interface that stays out of the way until it matters most. Explore VaalAuras and make your overlay your own.',
   features: [
-    { eyebrow: 'I / AWARENESS', title: 'See what matters.', description: 'Keep important resources and abilities within sight, without letting the interface take over your screen.', icon: 'eye' },
-    { eyebrow: 'II / CONTROL', title: 'Make it yours.', description: 'Shape your setup around the way you play. Your screen, your priorities, your experience.', icon: 'sliders' },
-    { eyebrow: 'III / EVOLUTION', title: 'Always improving.', description: 'Follow the changelog as the project evolves, and find walkthroughs when you need a hand.', icon: 'shield' },
+    { eyebrow: 'I / AWARENESS', title: 'See what matters.', description: 'Keep important resources and abilities within sight, without letting the interface take over your screen.', icon: 'eye', iconUrl: '', imageUrl: '' },
+    { eyebrow: 'II / CONTROL', title: 'Make it yours.', description: 'Shape your setup around the way you play. Your screen, your priorities, your experience.', icon: 'sliders', iconUrl: '', imageUrl: '' },
+    { eyebrow: 'III / EVOLUTION', title: 'Always improving.', description: 'Follow the changelog as the project evolves, and find walkthroughs when you need a hand.', icon: 'shield', iconUrl: '', imageUrl: '' },
   ],
   ctaKicker: 'YOUR NEXT STEP',
   ctaTitle: 'Ready to enter',
@@ -92,11 +92,27 @@ export function validateSiteInput(
     const item = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {};
     const title = cleanText(item.title, 100);
     if (!title) return { ok: false, error: 'Every feature card requires a title.' };
+    const imageValue = typeof item.imageUrl === 'string' ? item.imageUrl.trim() : '';
+    const imageUrl = imageValue ? normalizeLinkUrl(imageValue) : '';
+    if (imageValue && !imageUrl) return { ok: false, error: `Feature card ${features.length + 1} has an invalid image URL.` };
+    const icon = item.icon === 'sliders' || item.icon === 'shield' || item.icon === 'none' || item.icon === 'custom' ? item.icon : 'eye';
+    const rawIconUrl = typeof item.iconUrl === 'string' ? item.iconUrl.trim() : '';
+    let iconUrl = '';
+    if (icon === 'custom') {
+      if (/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(rawIconUrl) && rawIconUrl.length <= 140000) {
+        iconUrl = rawIconUrl;
+      } else {
+        iconUrl = normalizeLinkUrl(rawIconUrl) || '';
+      }
+      if (rawIconUrl && !iconUrl) return { ok: false, error: `Feature card ${features.length + 1} has an invalid custom icon.` };
+    }
     features.push({
       title,
       eyebrow: cleanText(item.eyebrow, 60),
+      imageUrl: imageUrl || '',
       description: cleanText(item.description, 800),
-      icon: item.icon === 'sliders' || item.icon === 'shield' ? item.icon : 'eye',
+      icon,
+      iconUrl,
     });
   }
   home.features = features;
