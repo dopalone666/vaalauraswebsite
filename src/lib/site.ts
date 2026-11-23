@@ -11,6 +11,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   tags: [],
   headline: 'Free, high-performance aura tracking overlay for Path of Exile.',
   subline: 'Built for all builds, with ongoing updates and community feedback.',
+  footer: '',
   buttons: [{ id: 'download', label: 'Download', url: '', style: 'primary' }],
   socials: { ...DEFAULT_SOCIALS },
   updatedAt: '1970-01-01T00:00:00.000Z',
@@ -47,6 +48,7 @@ export function validateSiteInput(
 
   const headline = cleanText(raw.headline, 300);
   const subline = cleanText(raw.subline, 300);
+  const footer = cleanText(raw.footer, 1000);
 
   const tags = (Array.isArray(raw.tags) ? raw.tags : [])
     .map((t) => cleanText(t, 40))
@@ -96,5 +98,5 @@ export function validateSiteInput(
     }
   }
 
-  return { ok: true, data: { title, tags, headline, subline, buttons, socials } };
+  return { ok: true, data: { title, tags, headline, subline, footer, buttons, socials } };
 }

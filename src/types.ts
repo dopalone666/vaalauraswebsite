@@ -41,6 +41,7 @@ export interface SiteSettings {
   tags: string[];
   headline: string;
   subline: string;
+  footer: string;
   buttons: HomeButton[];
   socials: SocialLinks;
   updatedAt: string;

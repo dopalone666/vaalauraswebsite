@@ -20,6 +20,7 @@ test('validateSiteInput accepts buttons, keeps order, rejects bad links', () => 
       tags: ['A', '', 'B'],
       headline: 'h',
       subline: 's',
+      footer: 'This is our footer',
       buttons: [
         { id: 'download', label: 'Download', url: 'https://example.com/x.zip', style: 'primary' },
         { label: 'Docs', url: '', style: 'secondary' },
@@ -31,6 +32,7 @@ test('validateSiteInput accepts buttons, keeps order, rejects bad links', () => 
   assert.equal(ok.ok, true);
   if (ok.ok) {
     assert.equal(ok.data.title, 'VaalAuras');
+    assert.equal(ok.data.footer, 'This is our footer');
     assert.deepEqual(ok.data.tags, ['A', 'B']);
     assert.equal(ok.data.buttons.length, 2);
     assert.equal(ok.data.buttons[1].id, 'gen1');
@@ -47,4 +49,14 @@ test('validateSiteInput accepts buttons, keeps order, rejects bad links', () => 
 
   const noLabel = validateSiteInput({ title: 'x', buttons: [{ label: '', url: '' }] }, id);
   assert.equal(noLabel.ok, false);
+});
+
+
+test('footer is plain text, optional, and length-limited', () => {
+  const empty = validateSiteInput({ title: 'VaalAuras' }, id);
+  assert.equal(empty.ok, true);
+  if (empty.ok) assert.equal(empty.data.footer, '');
+  const limited = validateSiteInput({ title: 'VaalAuras', footer: 'a'.repeat(1200) }, id);
+  assert.equal(limited.ok, true);
+  if (limited.ok) assert.equal(limited.data.footer.length, 1000);
 });

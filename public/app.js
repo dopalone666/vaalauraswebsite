@@ -33,6 +33,7 @@
     tags: [],
     headline: '',
     subline: '',
+    footer: '',
     buttons: [{ id: 'download', label: 'Download', url: '', style: 'primary' }],
     socials: {
       patreon: 'https://www.patreon.com/SayakaNyokota',
@@ -865,13 +866,13 @@
       var node = el(map[key]);
       if (node && s[key] && isSafeHref(s[key])) node.href = s[key];
     });
-    var help = el('nav-help');
-    if (help && s.discord && isSafeHref(s.discord)) help.href = s.discord;
   }
 
   function renderHome() {
     var site = currentSite();
-    setText('hero-title', site.title || 'VaalAuras');
+    var heroWordmark = el('hero-title').querySelector('img');
+    if (heroWordmark) heroWordmark.alt = site.title || 'VaalAuras';
+    setText('site-footer-text', site.footer || '');
     setText('hero-headline', site.headline || '');
     setText('hero-subline', site.subline || '');
     show(el('hero-headline'), Boolean(site.headline));
@@ -1014,6 +1015,7 @@
     el('home-tags-input').value = (site.tags || []).join(', ');
     el('home-headline-input').value = site.headline || '';
     el('home-subline-input').value = site.subline || '';
+    el('home-footer-input').value = site.footer || '';
     var s = site.socials || DEFAULT_SITE.socials;
     el('home-social-patreon').value = s.patreon || '';
     el('home-social-twitch').value = s.twitch || '';
@@ -1041,6 +1043,7 @@
         .filter(Boolean),
       headline: el('home-headline-input').value,
       subline: el('home-subline-input').value,
+      footer: el('home-footer-input').value,
       buttons: state.homeDraftButtons,
       socials: {
         patreon: el('home-social-patreon').value,

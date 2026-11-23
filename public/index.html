@@ -15,7 +15,7 @@
       href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=20261123-3" />
+    <link rel="stylesheet" href="/styles.css?v=20261123-redesign-1" />
   </head>
   <body>
     <header class="topbar">
@@ -24,7 +24,7 @@
           <a href="#home" class="brand" id="brand-link">
             <img src="/assets/vaalauras_logo.png" alt="" class="brand-logo" width="32" height="32" />
             <img
-              src="/assets/aistudio/vaalauras_wordmark_c336ebb0.png"
+              src="/assets/vaalauras_wordmark.png"
               alt="VaalAuras"
               class="brand-wordmark-img"
               id="brand-wordmark-img"
@@ -36,7 +36,6 @@
             <button type="button" class="nav-link is-active" data-view="home" aria-current="page">Home</button>
             <button type="button" class="nav-link" data-view="guide">Guide</button>
             <button type="button" class="nav-link" data-view="changelog">Changelog</button>
-            <a id="nav-help" href="https://discord.com/invite/GQVy8uUBW" target="_blank" rel="noopener noreferrer" class="nav-link nav-link-external">Help</a>
           </nav>
         </div>
 
@@ -63,14 +62,44 @@
 
       <!-- VIEW 1: HOME -->
       <section id="view-home" class="view-section home-stage" aria-label="Home">
+        <div class="hero-aura" aria-hidden="true"></div>
         <div class="hero">
+          <div class="hero-eyebrow"><span class="eyebrow-spark"></span> THE PATH OF EXILE OVERLAY <span class="eyebrow-spark"></span></div>
           <img src="/assets/vaalauras_logo.png" alt="" class="hero-logo" id="hero-logo" width="120" height="120" />
-          <h1 class="hero-title" id="hero-title">VaalAuras</h1>
+          <h1 class="hero-title" id="hero-title"><img src="/assets/vaalauras_wordmark.png" class="hero-wordmark" alt="VaalAuras" width="768" height="214" /></h1>
           <div class="hero-tags hidden" id="hero-tags"></div>
           <p class="hero-headline" id="hero-headline"></p>
           <p class="hero-subline" id="hero-subline"></p>
           <div class="hero-buttons" id="hero-buttons"></div>
+          <div class="hero-footnote"><span class="hero-footnote-line"></span> BUILT FOR YOUR BUILD <span class="hero-footnote-line"></span></div>
           <button type="button" id="btn-edit-home" class="btn btn-outline btn-sm hidden">Edit page</button>
+        </div>
+
+        <div class="home-content" aria-label="Explore VaalAuras">
+          <div class="section-kicker"><span class="kicker-dash"></span> THE EXPERIENCE <span class="kicker-dash"></span></div>
+          <h2 class="home-section-title">Every moment <em>matters.</em></h2>
+          <p class="home-section-intro">Your game deserves an interface that stays out of the way until it matters most. Explore VaalAuras and make your overlay your own.</p>
+          <div class="feature-grid">
+            <article class="feature-card">
+              <div class="feature-number">I / AWARENESS</div>
+              <div class="feature-icon" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M5 24s7-11 19-11 19 11 19 11-7 11-19 11S5 24 5 24Z"/><circle cx="24" cy="24" r="7"/><circle cx="24" cy="24" r="2" fill="currentColor" stroke="none"/><path d="M24 4v5M24 39v5M4 24h5M39 24h5"/></svg></div>
+              <h3>See what matters.</h3><p>Keep important resources and abilities within sight, without letting the interface take over your screen.</p>
+            </article>
+            <article class="feature-card">
+              <div class="feature-number">II / CONTROL</div>
+              <div class="feature-icon" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M8 12h32M8 24h32M8 36h32"/><circle cx="18" cy="12" r="4" fill="#141011"/><circle cx="32" cy="24" r="4" fill="#141011"/><circle cx="21" cy="36" r="4" fill="#141011"/></svg></div>
+              <h3>Make it yours.</h3><p>Shape your setup around the way you play. Your screen, your priorities, your experience.</p>
+            </article>
+            <article class="feature-card">
+              <div class="feature-number">III / EVOLUTION</div>
+              <div class="feature-icon" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M24 4 39 12v17L24 44 9 29V12L24 4Z"/><path d="m16 24 6 6 12-13"/><path d="M24 4v8M9 12l8 5M39 12l-8 5"/></svg></div>
+              <h3>Always improving.</h3><p>Follow the changelog as the project evolves, and find walkthroughs when you need a hand.</p>
+            </article>
+          </div>
+          <div class="explore-panel">
+            <div class="explore-copy"><span class="section-kicker">YOUR NEXT STEP</span><h2>Ready to enter <em>the fray?</em></h2><p>Get started with the guide, or see what's changed in the latest updates.</p></div>
+            <div class="explore-actions"><button type="button" class="btn explore-btn nav-link" data-view="guide">Explore the guide <span aria-hidden="true">↗</span></button><button type="button" class="btn explore-btn explore-btn-secondary nav-link" data-view="changelog">View changelog <span aria-hidden="true">↗</span></button></div>
+          </div>
         </div>
 
         <!-- Developer editor for the home page -->
@@ -116,6 +145,12 @@
                 <input id="home-social-twitch" type="url" class="text-input" placeholder="Twitch URL" aria-label="Twitch URL" />
                 <input id="home-social-discord" type="url" class="text-input" placeholder="Discord URL" aria-label="Discord URL" />
               </div>
+            </div>
+
+            <div class="field-group">
+              <label for="home-footer-input" class="field-label">Site footer (shown on every page)</label>
+              <textarea id="home-footer-input" class="text-input textarea-input" maxlength="1000" rows="3" placeholder="Footer text (optional)"></textarea>
+              <p class="field-hint">Plain text, up to 1000 characters. Leave empty to hide footer text; the divider remains visible.</p>
             </div>
 
             <p id="home-form-error" class="form-error hidden" role="alert"></p>
@@ -362,6 +397,12 @@
       </section>
     </main>
 
+    <footer class="site-footer" aria-label="Site footer">
+      <div class="footer-top"><div class="footer-brand"><img src="/assets/vaalauras_logo.png" alt="" width="32" height="32" /><span>VAALAURAS</span></div><div class="footer-nav"><button type="button" class="footer-link nav-link" data-view="home">Home</button><button type="button" class="footer-link nav-link" data-view="guide">Guide</button><button type="button" class="footer-link nav-link" data-view="changelog">Changelog</button></div></div>
+      <div class="site-footer-divider" aria-hidden="true"></div>
+      <p id="site-footer-text" class="site-footer-text"></p>
+    </footer>
+
     <!-- Developer login -->
     <dialog id="login-dialog" class="login-dialog">
       <form id="developer-login-form" class="dev-login-form" novalidate>
@@ -382,6 +423,6 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20261123-3"></script>
+    <script src="/app.js?v=20261123-redesign-1"></script>
   </body>
 </html>
