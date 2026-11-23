@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "npx wrangler dev",
-    "deploy": "npx wrangler deploy"
+    "deploy": "npx wrangler deploy",
+    "test": "tsx --test src/lib/*.test.ts"
   },
   "devDependencies": {
-    "wrangler": "^4.0.0"
+    "wrangler": "^4.0.0",
+    "tsx": "^4.19.0"
   }
 }

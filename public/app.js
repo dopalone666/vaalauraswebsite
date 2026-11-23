@@ -1,18 +1,14 @@
 (function () {
   'use strict';
 
-  var SESSION_MAX_MS = 24 * 60 * 60 * 1000;
-
   var state = {
-    activeView: 'access',
-    config: null,
-    bearerToken: null,
-    session: null,
-    sessionExpiresAt: null,
-    logoutTimerId: null,
-    handoff: null,
-    devFormOpen: false,
-    popupWindow: null,
+    activeView: 'home',
+    developer: false,
+    loginConfigured: true,
+    site: null,
+    siteStorageReady: true,
+    homeEditorOpen: false,
+    homeDraftButtons: [],
 
     // Changelog state
     changelogs: [],
@@ -32,24 +28,31 @@
     guideEditorOpen: false,
   };
 
+  var DEFAULT_SITE = {
+    title: 'VaalAuras',
+    tags: [],
+    headline: '',
+    subline: '',
+    buttons: [{ id: 'download', label: 'Download', url: '', style: 'primary' }],
+    socials: {
+      patreon: 'https://www.patreon.com/SayakaNyokota',
+      twitch: 'https://www.twitch.tv/icddsayaka',
+      discord: 'https://discord.com/invite/GQVy8uUBW',
+    },
+  };
+
   function el(id) {
     return document.getElementById(id);
   }
 
   function show(node, visible) {
     if (!node) return;
-    if (visible) {
-      node.classList.remove('hidden');
-    } else {
-      node.classList.add('hidden');
-    }
+    node.classList.toggle('hidden', !visible);
   }
 
   function setText(id, value) {
     var node = el(id);
-    if (node) {
-      node.textContent = value;
-    }
+    if (node) node.textContent = value;
   }
 
   function setBanner(message, type) {
@@ -66,47 +69,55 @@
       (type === 'error' ? 'alert-error' : type === 'warn' ? 'alert-warn' : '');
   }
 
-  function setDevError(message) {
-    var errNode = el('dev-login-error');
-    if (!errNode) return;
-    if (!message) {
-      errNode.textContent = '';
-      show(errNode, false);
-      return;
-    }
-    errNode.textContent = message;
-    show(errNode, true);
-  }
-
   function setInlineFormError(id, message) {
     var node = el(id);
     if (!node) return;
-    if (!message) {
-      node.textContent = '';
-      show(node, false);
-      return;
-    }
-    node.textContent = message;
-    show(node, true);
+    node.textContent = message || '';
+    show(node, Boolean(message));
   }
 
   function isDeveloper() {
-    return Boolean(
-      state.bearerToken &&
-        state.session &&
-        state.session.entitlement &&
-        state.session.entitlement.active &&
-        (state.session.user.provider === 'developer' ||
-          state.session.entitlement.tierCode === 'developer')
-    );
+    return state.developer === true;
   }
 
-  function initialsFor(name) {
-    var parts = String(name || 'VA').trim().split(/\s+/);
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
+  function isSafeHref(url) {
+    return /^https?:\/\//i.test(url) || (url.charAt(0) === '/' && url.charAt(1) !== '/');
+  }
+
+  async function apiJson(path, options) {
+    var opts = options || {};
+    var headers = Object.assign({ 'X-Requested-With': 'VaalAuras' }, opts.headers || {});
+    if (opts.body && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
     }
-    return String(name || 'VA').slice(0, 2).toUpperCase();
+    var resp = await fetch(path, {
+      method: opts.method || 'GET',
+      headers: headers,
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: opts.body,
+    });
+    var data = null;
+    try {
+      data = await resp.json();
+    } catch (_) {
+      data = null;
+    }
+    if (resp.status === 401 && state.developer) {
+      // Session expired: drop back to public mode.
+      state.developer = false;
+      applyDeveloperState();
+    }
+    if (!resp.ok) {
+      throw new Error((data && data.error) || 'Request failed (' + resp.status + ').');
+    }
+    return data;
+  }
+
+  function formatDisplayDateToday() {
+    var d = new Date();
+    var months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
   }
 
   function extractYouTubeId(rawUrl) {
@@ -165,253 +176,6 @@
     wrap.appendChild(iframe);
     return wrap;
   }
-
-  function formatDisplayDateToday() {
-    var d = new Date();
-    var months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
-    return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
-  }
-
-  function isEmbeddedFrame() {
-    try {
-      return window.self !== window.top;
-    } catch (_) {
-      return true;
-    }
-  }
-
-  async function apiJson(path, options) {
-    var opts = options || {};
-    var hadBearer = Boolean(state.bearerToken);
-    var headers = Object.assign(
-      {
-        'X-Requested-With': 'VaalAuras',
-        'X-Embedded-Frame': isEmbeddedFrame() ? '1' : '0',
-      },
-      opts.headers || {}
-    );
-    if (state.bearerToken) {
-      headers.Authorization = 'Bearer ' + state.bearerToken;
-    }
-    if (opts.body && !headers['Content-Type']) {
-      headers['Content-Type'] = 'application/json';
-    }
-    var resp = await fetch(path, {
-      method: opts.method || 'GET',
-      headers: headers,
-      credentials: 'same-origin',
-      cache: 'no-store',
-      body: opts.body,
-    });
-    var data = null;
-    try {
-      data = await resp.json();
-    } catch (_) {
-      data = null;
-    }
-    if (resp.status === 401 && hadBearer && !opts.skipAutoExpire) {
-      await expireSessionClient(false);
-    }
-    if (!resp.ok) {
-      var msg = (data && data.error) || 'Request failed (' + resp.status + ').';
-      throw new Error(msg);
-    }
-    return data;
-  }
-
-  function renderMemberAvatar(imgId, initialsId, user) {
-    var img = el(imgId);
-    var init = el(initialsId);
-    if (!img || !init) return;
-
-    init.textContent = initialsFor(user.displayName || user.username);
-    if (user.avatarUrl && /^https?:\/\//i.test(user.avatarUrl)) {
-      img.src = user.avatarUrl;
-      img.alt = user.displayName;
-      show(img, true);
-      show(init, false);
-    } else {
-      img.removeAttribute('src');
-      show(img, false);
-      show(init, true);
-    }
-  }
-
-  function providerDisplayName(provider) {
-    if (provider === 'twitch') return 'Twitch';
-    if (provider === 'patreon') return 'Patreon';
-    if (provider === 'developer') return 'Developer';
-    return 'Member';
-  }
-
-  function triggerHiddenNavigation(targetUrl) {
-    var frame = document.createElement('iframe');
-    frame.style.display = 'none';
-    frame.src = targetUrl;
-    document.body.appendChild(frame);
-    setTimeout(function () {
-      if (frame.parentNode) frame.parentNode.removeChild(frame);
-    }, 1500);
-  }
-
-  function switchView(viewName, updateHash) {
-    var valid = viewName === 'guide' || viewName === 'changelog' ? viewName : 'access';
-    state.activeView = valid;
-
-    var navBtns = document.querySelectorAll('.nav-link[data-view]');
-    for (var i = 0; i < navBtns.length; i += 1) {
-      var btn = navBtns[i];
-      var isTarget = btn.getAttribute('data-view') === valid;
-      btn.classList.toggle('is-active', isTarget);
-      if (isTarget) {
-        btn.setAttribute('aria-current', 'page');
-      } else {
-        btn.removeAttribute('aria-current');
-      }
-    }
-
-    show(el('view-access'), valid === 'access');
-    show(el('view-guide'), valid === 'guide');
-    show(el('view-changelog'), valid === 'changelog');
-
-    if (updateHash !== false) {
-      var nextHash = '#' + valid;
-      if (window.location.hash !== nextHash) {
-        try {
-          window.history.replaceState({}, '', nextHash);
-        } catch (_) {}
-      }
-    }
-
-    if (valid === 'guide') {
-      renderGuideView();
-    } else if (valid === 'changelog') {
-      renderChangelogView();
-    }
-  }
-
-  function toggleDevForm(forceOpen) {
-    var form = el('developer-login-form');
-    var toggleBtn = el('btn-toggle-dev-login');
-    if (!form || !toggleBtn) return;
-
-    var nextOpen = typeof forceOpen === 'boolean' ? forceOpen : !state.devFormOpen;
-    state.devFormOpen = nextOpen;
-    show(form, nextOpen);
-    toggleBtn.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
-    if (nextOpen) {
-      setDevError('');
-      var emailInput = el('dev-email');
-      if (emailInput) emailInput.focus();
-    }
-  }
-
-  function renderPortal() {
-    var cfg = state.config;
-    var signedIn = Boolean(state.session && state.bearerToken);
-
-    show(el('topbar-signout-btn'), signedIn);
-
-    if (cfg) {
-      var warnNode = el('portal-signing-warning');
-      if (warnNode) {
-        warnNode.classList.toggle('hidden', Boolean(cfg.signingConfigured));
-      }
-      var formatShortDollars = function (cents) {
-        var val = cents / 100;
-        return '$' + (cents % 100 === 0 ? val.toFixed(0) : val.toFixed(2));
-      };
-      var minCents = typeof cfg.patreonMinTierCents === 'number' ? cfg.patreonMinTierCents : 300;
-      var t2Cents = typeof cfg.patreonLifetimeT2Cents === 'number' ? cfg.patreonLifetimeT2Cents : 500;
-      var patNote = el('patreon-tier-note');
-      if (patNote) {
-        patNote.textContent = '';
-        var line1 = document.createElement('span');
-        line1.textContent = '$3 Monthly License';
-        var line2 = document.createElement('span');
-        line2.textContent = '$5+ Lifetime License';
-        patNote.appendChild(line1);
-        patNote.appendChild(line2);
-      }
-    }
-
-    if (!signedIn) {
-      show(el('state-logged-out'), true);
-      show(el('state-verified'), false);
-      show(el('state-denied'), false);
-    } else {
-      var user = state.session.user;
-      var ent = state.session.entitlement;
-      var providerLabel = providerDisplayName(user.provider);
-      var checkedLabel = ent.checkedAt ? new Date(ent.checkedAt).toLocaleString() : 'Just now';
-
-      if (ent.active) {
-        show(el('state-logged-out'), false);
-        show(el('state-verified'), true);
-        show(el('state-denied'), false);
-
-        renderMemberAvatar('verified-avatar-img', 'verified-avatar-initials', user);
-        el('verified-name').textContent = user.displayName || user.username;
-        el('verified-summary').textContent =
-          user.provider === 'developer'
-            ? 'Developer · All Features (Lifetime)'
-            : providerLabel + ' · ' + ent.tierLabel;
-        el('verified-reason').textContent = ent.reason;
-        el('verified-checked-at').textContent = checkedLabel;
-
-        show(el('access-kv-warning'), Boolean(isDeveloper() && cfg && !cfg.kvConfigured));
-        var isMaxLifetime = Boolean(ent.lifetime) && Number(ent.accessLevel || 0) >= 3;
-        show(el('btn-recheck-verified'), user.provider !== 'developer' && !isMaxLifetime);
-      } else {
-        show(el('state-logged-out'), false);
-        show(el('state-verified'), false);
-        show(el('state-denied'), true);
-
-        renderMemberAvatar('denied-avatar-img', 'denied-avatar-initials', user);
-        el('denied-name').textContent = user.displayName || user.username;
-        el('denied-summary').textContent = providerLabel + ' · ' + ent.tierLabel;
-        el('denied-reason').textContent = ent.reason;
-        el('denied-checked-at').textContent = checkedLabel;
-
-        var linksWrap = el('denied-subscribe-links');
-        var twLink = el('link-subscribe-twitch');
-        var patLink = el('link-subscribe-patreon');
-        var showTwitch = Boolean(user.provider === 'twitch' && cfg && cfg.twitchChannelUrl);
-        var showPatreon = Boolean(user.provider === 'patreon' && cfg && cfg.patreonCreatorUrl);
-
-        if (twLink) {
-          if (showTwitch) twLink.href = cfg.twitchChannelUrl;
-          show(twLink, showTwitch);
-        }
-        if (patLink) {
-          if (showPatreon) patLink.href = cfg.patreonCreatorUrl;
-          show(patLink, showPatreon);
-        }
-        show(linksWrap, showTwitch || showPatreon);
-      }
-    }
-
-    renderGuideView();
-    renderChangelogView();
-  }
-
-  /* =========================================================
-     GUIDE VIEW & DEVELOPER EDITOR
-     ========================================================= */
-
   function renderRichBody(container, rawBody, embedVideos) {
     var lines = String(rawBody || '').split(/\r?\n/);
     var currentUl = null;
@@ -1053,224 +817,337 @@
   }
 
   /* =========================================================
-     AUTH & DESKTOP LAUNCH
+     VIEWS
      ========================================================= */
 
-  async function startOAuth(provider) {
-    setBanner('');
-    try {
-      var data = await apiJson('/api/auth/' + provider + '/url');
-      var popup = window.open(
-        data.url,
-        'vaalauras_' + provider + '_oauth',
-        'width=560,height=720,menubar=no,toolbar=no'
-      );
-      if (!popup) {
-        window.location.href = data.url;
-        return;
+  function switchView(viewName, updateHash) {
+    var valid = viewName === 'guide' || viewName === 'changelog' ? viewName : 'home';
+    state.activeView = valid;
+
+    var navBtns = document.querySelectorAll('.nav-link[data-view]');
+    for (var i = 0; i < navBtns.length; i += 1) {
+      var btn = navBtns[i];
+      var isTarget = btn.getAttribute('data-view') === valid;
+      btn.classList.toggle('is-active', isTarget);
+      if (isTarget) btn.setAttribute('aria-current', 'page');
+      else btn.removeAttribute('aria-current');
+    }
+
+    show(el('view-home'), valid === 'home');
+    show(el('view-guide'), valid === 'guide');
+    show(el('view-changelog'), valid === 'changelog');
+
+    if (updateHash !== false) {
+      var nextHash = '#' + valid;
+      if (window.location.hash !== nextHash) {
+        try {
+          window.history.replaceState({}, '', nextHash);
+        } catch (_) {}
       }
-      state.popupWindow = popup;
-    } catch (err) {
-      setBanner(err.message || 'Could not start OAuth login.', 'error');
     }
+
+    if (valid === 'guide') renderGuideView();
+    else if (valid === 'changelog') renderChangelogView();
   }
 
-  function clearAutoLogoutTimer() {
-    if (state.logoutTimerId !== null) {
-      clearTimeout(state.logoutTimerId);
-      state.logoutTimerId = null;
-    }
+  /* =========================================================
+     HOME PAGE
+     ========================================================= */
+
+  function currentSite() {
+    return state.site || DEFAULT_SITE;
   }
 
-  function applySessionPayload(data) {
-    state.bearerToken = data.bearerToken || state.bearerToken;
-    state.session = {
-      user: data.user,
-      entitlement: data.entitlement,
-    };
-    if (typeof data.expiresInSeconds === 'number' && data.expiresInSeconds > 0) {
-      state.sessionExpiresAt = Date.now() + data.expiresInSeconds * 1000;
-    } else {
-      var parsedExp = data.expiresAt ? Date.parse(data.expiresAt) : NaN;
-      state.sessionExpiresAt = Number.isFinite(parsedExp) ? parsedExp : Date.now() + SESSION_MAX_MS;
-    }
-    state.handoff = null;
-    scheduleAutoLogout();
+  function renderSocials() {
+    var s = currentSite().socials || DEFAULT_SITE.socials;
+    var map = { patreon: 'social-patreon', twitch: 'social-twitch', discord: 'social-discord' };
+    Object.keys(map).forEach(function (key) {
+      var node = el(map[key]);
+      if (node && s[key] && isSafeHref(s[key])) node.href = s[key];
+    });
+    var help = el('nav-help');
+    if (help && s.discord && isSafeHref(s.discord)) help.href = s.discord;
   }
 
-  function scheduleAutoLogout() {
-    clearAutoLogoutTimer();
-    if (!state.bearerToken || !state.sessionExpiresAt) {
-      return;
-    }
-    var remainingMs = state.sessionExpiresAt - Date.now();
-    if (remainingMs <= 0) {
-      void expireSessionClient(true);
-      return;
-    }
-    var delay = Math.min(remainingMs, 2147483647);
-    state.logoutTimerId = setTimeout(checkSessionExpiry, delay);
-  }
+  function renderHome() {
+    var site = currentSite();
+    setText('hero-title', site.title || 'VaalAuras');
+    setText('hero-headline', site.headline || '');
+    setText('hero-subline', site.subline || '');
+    show(el('hero-headline'), Boolean(site.headline));
+    show(el('hero-subline'), Boolean(site.subline));
+    document.title = site.title || 'VaalAuras';
 
-  function checkSessionExpiry() {
-    if (!state.bearerToken || !state.sessionExpiresAt) {
-      return;
-    }
-    if (Date.now() >= state.sessionExpiresAt) {
-      void expireSessionClient(true);
-    } else {
-      scheduleAutoLogout();
-    }
-  }
-
-  async function expireSessionClient(notifyServer) {
-    clearAutoLogoutTimer();
-    var wasSignedIn = Boolean(state.bearerToken || state.session);
-    state.bearerToken = null;
-    state.session = null;
-    state.sessionExpiresAt = null;
-    state.handoff = null;
-    closeGuideEditor();
-    closeChangelogEditor();
-    renderPortal();
-
-    if (notifyServer) {
-      try {
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'X-Requested-With': 'VaalAuras' },
-        });
-      } catch (_) {}
-    }
-    if (wasSignedIn) {
-      setBanner('Your 24-hour session has expired. Please sign in again.', 'warn');
-    }
-  }
-
-  async function restoreSession() {
-    try {
-      var data = await apiJson('/api/auth/session?_=' + Date.now(), { skipAutoExpire: true });
-      if (data && data.authenticated && data.bearerToken && data.user && data.entitlement) {
-        applySessionPayload(data);
+    var tagsEl = el('hero-tags');
+    tagsEl.textContent = '';
+    var tags = Array.isArray(site.tags) ? site.tags : [];
+    tags.forEach(function (tag, idx) {
+      if (idx > 0) {
+        var sep = document.createElement('span');
+        sep.className = 'hero-tag-sep';
+        sep.setAttribute('aria-hidden', 'true');
+        tagsEl.appendChild(sep);
       }
-    } catch (_) {
-      // Not signed in or 24-hour session expired
-    }
+      var chip = document.createElement('span');
+      chip.className = 'hero-tag';
+      chip.textContent = tag;
+      tagsEl.appendChild(chip);
+    });
+    show(tagsEl, tags.length > 0);
+
+    var wrap = el('hero-buttons');
+    wrap.textContent = '';
+    (site.buttons || []).forEach(function (b) {
+      var hasUrl = Boolean(b.url) && isSafeHref(b.url);
+      // Visitors only see buttons that have a link; the developer sees all (to finish setting them up).
+      if (!hasUrl && !isDeveloper()) return;
+      var a = document.createElement(hasUrl ? 'a' : 'span');
+      a.className = 'btn btn-xl ' + (b.style === 'secondary' ? 'btn-secondary-cta' : 'btn-cta');
+      a.textContent = b.label;
+      if (hasUrl) {
+        a.href = b.url;
+        if (/^https?:\/\//i.test(b.url)) {
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+        }
+      } else {
+        a.classList.add('is-unset');
+        a.title = 'No link set yet. Use Edit page to add one.';
+      }
+      wrap.appendChild(a);
+    });
+
+    renderSocials();
   }
 
-  async function claimAuthCode(authCode) {
-    setBanner('');
-    try {
-      var data = await apiJson('/api/auth/claim', {
-        method: 'POST',
-        body: JSON.stringify({ authCode: authCode }),
+  function setHomeError(message) {
+    setInlineFormError('home-form-error', message);
+  }
+
+  function renderHomeButtonRows() {
+    var list = el('home-buttons-editor');
+    list.textContent = '';
+    state.homeDraftButtons.forEach(function (b, idx) {
+      var row = document.createElement('div');
+      row.className = 'btn-editor-row';
+
+      var label = document.createElement('input');
+      label.type = 'text';
+      label.className = 'text-input';
+      label.placeholder = 'Label';
+      label.maxLength = 40;
+      label.value = b.label;
+      label.setAttribute('aria-label', 'Button label');
+      label.addEventListener('input', function () {
+        b.label = label.value;
       });
-      applySessionPayload(data);
-      renderPortal();
-    } catch (err) {
-      setBanner(err.message || 'Could not verify login handoff.', 'error');
-    }
+
+      var url = document.createElement('input');
+      url.type = 'text';
+      url.className = 'text-input';
+      url.placeholder = 'https://...';
+      url.value = b.url;
+      url.setAttribute('aria-label', 'Button link');
+      url.addEventListener('input', function () {
+        b.url = url.value;
+      });
+
+      var style = document.createElement('select');
+      style.className = 'text-input';
+      style.setAttribute('aria-label', 'Button style');
+      [['primary', 'Filled'], ['secondary', 'Outline']].forEach(function (opt) {
+        var o = document.createElement('option');
+        o.value = opt[0];
+        o.textContent = opt[1];
+        if (b.style === opt[0]) o.selected = true;
+        style.appendChild(o);
+      });
+      style.addEventListener('change', function () {
+        b.style = style.value;
+      });
+
+      var controls = document.createElement('div');
+      controls.className = 'btn-editor-controls';
+      function mk(text, title, handler, disabled) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-ghost btn-sm';
+        btn.textContent = text;
+        btn.title = title;
+        btn.disabled = Boolean(disabled);
+        btn.addEventListener('click', handler);
+        controls.appendChild(btn);
+      }
+      mk('\u2191', 'Move left', function () {
+        var t = state.homeDraftButtons[idx - 1];
+        state.homeDraftButtons[idx - 1] = state.homeDraftButtons[idx];
+        state.homeDraftButtons[idx] = t;
+        renderHomeButtonRows();
+      }, idx === 0);
+      mk('\u2193', 'Move right', function () {
+        var t = state.homeDraftButtons[idx + 1];
+        state.homeDraftButtons[idx + 1] = state.homeDraftButtons[idx];
+        state.homeDraftButtons[idx] = t;
+        renderHomeButtonRows();
+      }, idx === state.homeDraftButtons.length - 1);
+      mk('Remove', 'Remove button', function () {
+        state.homeDraftButtons.splice(idx, 1);
+        renderHomeButtonRows();
+      }, false);
+
+      row.appendChild(label);
+      row.appendChild(url);
+      row.appendChild(style);
+      row.appendChild(controls);
+      list.appendChild(row);
+    });
+    el('btn-add-home-button').disabled = state.homeDraftButtons.length >= 8;
   }
 
-  async function submitDeveloperLogin(event) {
+  function openHomeEditor() {
+    var site = currentSite();
+    state.homeEditorOpen = true;
+    state.homeDraftButtons = (site.buttons || []).map(function (b) {
+      return { id: b.id, label: b.label, url: b.url, style: b.style === 'secondary' ? 'secondary' : 'primary' };
+    });
+    el('home-title-input').value = site.title || '';
+    el('home-tags-input').value = (site.tags || []).join(', ');
+    el('home-headline-input').value = site.headline || '';
+    el('home-subline-input').value = site.subline || '';
+    var s = site.socials || DEFAULT_SITE.socials;
+    el('home-social-patreon').value = s.patreon || '';
+    el('home-social-twitch').value = s.twitch || '';
+    el('home-social-discord').value = s.discord || '';
+    setHomeError('');
+    renderHomeButtonRows();
+    show(el('home-editor-panel'), true);
+    el('home-editor-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function closeHomeEditor() {
+    state.homeEditorOpen = false;
+    show(el('home-editor-panel'), false);
+    setHomeError('');
+  }
+
+  async function saveHome(event) {
     event.preventDefault();
-    setBanner('');
-    setDevError('');
-
-    var email = (el('dev-email').value || '').trim();
-    var password = el('dev-password').value || '';
-    if (!email || !password) {
-      setDevError('Enter your email and password.');
-      return;
-    }
-
-    var submitBtn = el('btn-dev-submit');
-    var origText = submitBtn ? submitBtn.textContent : 'Sign in as Developer';
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Signing in...';
-    }
-
+    setHomeError('');
+    var payload = {
+      title: el('home-title-input').value,
+      tags: el('home-tags-input').value
+        .split(',')
+        .map(function (t) { return t.trim(); })
+        .filter(Boolean),
+      headline: el('home-headline-input').value,
+      subline: el('home-subline-input').value,
+      buttons: state.homeDraftButtons,
+      socials: {
+        patreon: el('home-social-patreon').value,
+        twitch: el('home-social-twitch').value,
+        discord: el('home-social-discord').value,
+      },
+    };
+    var saveBtn = el('btn-save-home');
+    saveBtn.disabled = true;
     try {
-      var data = await apiJson('/api/auth/developer', {
-        method: 'POST',
-        body: JSON.stringify({ email: email, password: password }),
-        skipAutoExpire: true,
-      });
-      applySessionPayload(data);
-      el('dev-password').value = '';
-      toggleDevForm(false);
-      renderPortal();
+      var data = await apiJson('/api/site', { method: 'PUT', body: JSON.stringify(payload) });
+      state.site = data.site;
+      closeHomeEditor();
+      renderHome();
     } catch (err) {
-      setDevError(err.message || 'Invalid email or password.');
+      setHomeError(err.message);
     } finally {
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.textContent = origText;
-      }
+      saveBtn.disabled = false;
     }
   }
 
-  async function recheckSubscription() {
-    setBanner('');
+  /* =========================================================
+     DEVELOPER LOGIN
+     ========================================================= */
+
+  function applyDeveloperState() {
+    var dev = isDeveloper();
+    show(el('btn-open-login'), !dev);
+    show(el('btn-signout'), dev);
+    show(el('btn-edit-home'), dev);
+    if (!dev) closeHomeEditor();
+    renderHome();
+    if (state.activeView === 'guide') renderGuideView();
+    if (state.activeView === 'changelog') renderChangelogView();
+  }
+
+  function setLoginError(message) {
+    setInlineFormError('dev-login-error', message);
+  }
+
+  function openLoginDialog() {
+    setLoginError('');
+    var dlg = el('login-dialog');
+    if (typeof dlg.showModal === 'function') dlg.showModal();
+    else dlg.setAttribute('open', '');
+    el('dev-email').focus();
+  }
+
+  function closeLoginDialog() {
+    var dlg = el('login-dialog');
+    if (typeof dlg.close === 'function') dlg.close();
+    else dlg.removeAttribute('open');
+    el('dev-password').value = '';
+  }
+
+  async function submitLogin(event) {
+    event.preventDefault();
+    setLoginError('');
+    var email = el('dev-email').value.trim();
+    var password = el('dev-password').value;
+    if (!email || !password) {
+      setLoginError('Enter your email and password.');
+      return;
+    }
+    var btn = el('btn-dev-submit');
+    btn.disabled = true;
     try {
-      var data = await apiJson('/api/auth/recheck', { method: 'POST' });
-      applySessionPayload(data);
-      renderPortal();
-      setBanner('Membership status refreshed.', 'info');
+      await apiJson('/api/login', { method: 'POST', body: JSON.stringify({ email: email, password: password }) });
+      state.developer = true;
+      closeLoginDialog();
+      applyDeveloperState();
     } catch (err) {
-      setBanner(err.message || 'Could not refresh subscription.', 'error');
+      setLoginError(err.message);
+    } finally {
+      btn.disabled = false;
     }
   }
 
   async function signOut() {
-    setBanner('');
-    setDevError('');
-    clearAutoLogoutTimer();
     try {
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: Object.assign(
-          { 'X-Requested-With': 'VaalAuras' },
-          state.bearerToken ? { Authorization: 'Bearer ' + state.bearerToken } : {}
-        ),
-      });
+      await apiJson('/api/logout', { method: 'POST' });
     } catch (_) {}
-    state.bearerToken = null;
-    state.session = null;
-    state.sessionExpiresAt = null;
-    state.handoff = null;
-    closeGuideEditor();
-    closeChangelogEditor();
-    renderPortal();
+    state.developer = false;
+    applyDeveloperState();
   }
 
-  async function launchDesktopApp() {
-    setBanner('');
-    var btn = el('btn-launch-desktop');
-    if (btn) btn.disabled = true;
+  /* =========================================================
+     LOADING & WIRING
+     ========================================================= */
 
+  async function loadSession() {
     try {
-      var payload = await apiJson('/api/license/issue', { method: 'POST' });
-      state.handoff = payload;
-      triggerHiddenNavigation(payload.appLaunchUri);
-    } catch (err) {
-      setBanner(err.message || 'Could not generate desktop launch code.', 'error');
-    } finally {
-      if (btn) btn.disabled = false;
+      var data = await apiJson('/api/session');
+      state.developer = Boolean(data.developer);
+      state.loginConfigured = Boolean(data.loginConfigured);
+    } catch (_) {
+      state.developer = false;
     }
   }
 
-  async function sendToLocalhostFallback() {
-    setBanner('');
+  async function loadSite() {
     try {
-      var payload = await apiJson('/api/license/issue', { method: 'POST' });
-      state.handoff = payload;
-      triggerHiddenNavigation(payload.localhostCallbackUrl);
-    } catch (err) {
-      setBanner(err.message || 'Could not send login code to localhost.', 'error');
+      var data = await apiJson('/api/site');
+      state.site = data.site;
+      state.siteStorageReady = Boolean(data.storageReady);
+    } catch (_) {
+      state.site = null;
     }
   }
 
@@ -1292,27 +1169,16 @@
   }
 
   function wireEvents() {
-    var logoImg = el('brand-logo-img');
-    var logoFallback = el('brand-logo-fallback');
-    if (logoImg && logoFallback) {
-      logoImg.addEventListener('error', function () {
-        show(logoImg, false);
-        show(logoFallback, true);
-      });
-    }
-
     var wordmarkImg = el('brand-wordmark-img');
-    var wordmarkFallback = el('brand-wordmark-fallback');
-    if (wordmarkImg && wordmarkFallback) {
+    if (wordmarkImg) {
       wordmarkImg.addEventListener('error', function () {
-        show(wordmarkImg, false);
-        show(wordmarkFallback, true);
+        wordmarkImg.replaceWith(document.createTextNode('VaalAuras'));
       });
     }
 
     el('brand-link').addEventListener('click', function (e) {
       e.preventDefault();
-      switchView('access');
+      switchView('home');
     });
 
     var navBtns = document.querySelectorAll('.nav-link[data-view]');
@@ -1322,26 +1188,20 @@
       });
     }
 
-    el('topbar-signout-btn').addEventListener('click', signOut);
+    el('btn-open-login').addEventListener('click', openLoginDialog);
+    el('btn-close-login').addEventListener('click', closeLoginDialog);
+    el('developer-login-form').addEventListener('submit', submitLogin);
+    el('btn-signout').addEventListener('click', signOut);
 
-    el('btn-twitch-login').addEventListener('click', function () {
-      startOAuth('twitch');
+    // Home editor
+    el('btn-edit-home').addEventListener('click', openHomeEditor);
+    el('btn-cancel-home-edit').addEventListener('click', closeHomeEditor);
+    el('home-editor-form').addEventListener('submit', saveHome);
+    el('btn-add-home-button').addEventListener('click', function () {
+      if (state.homeDraftButtons.length >= 8) return;
+      state.homeDraftButtons.push({ id: '', label: 'New button', url: '', style: 'secondary' });
+      renderHomeButtonRows();
     });
-    el('btn-patreon-login').addEventListener('click', function () {
-      startOAuth('patreon');
-    });
-
-    el('btn-toggle-dev-login').addEventListener('click', function () {
-      toggleDevForm();
-    });
-    el('developer-login-form').addEventListener('submit', submitDeveloperLogin);
-
-    el('btn-launch-desktop').addEventListener('click', launchDesktopApp);
-    el('btn-send-localhost-inline').addEventListener('click', sendToLocalhostFallback);
-    el('btn-recheck-verified').addEventListener('click', recheckSubscription);
-    el('btn-signout-verified').addEventListener('click', signOut);
-    el('btn-recheck-denied').addEventListener('click', recheckSubscription);
-    el('btn-signout-denied').addEventListener('click', signOut);
 
     // Guide events
     el('btn-new-guide').addEventListener('click', function () {
@@ -1360,64 +1220,23 @@
     });
     el('btn-cancel-changelog-edit').addEventListener('click', closeChangelogEditor);
     el('changelog-editor-form').addEventListener('submit', saveChangelogPost);
-
-    window.addEventListener('message', function (event) {
-      var data = event.data;
-      if (!data || typeof data !== 'object') return;
-      if (event.origin !== window.location.origin) return;
-
-      if (data.type === 'VAAL_AUTH_COMPLETE' && data.authCode) {
-        switchView('access');
-        claimAuthCode(data.authCode);
-      } else if (data.type === 'VAAL_AUTH_ERROR') {
-        switchView('access');
-        setBanner(data.error || 'OAuth login failed.', 'error');
-      }
-    });
-
-    document.addEventListener('visibilitychange', function () {
-      if (!document.hidden) {
-        checkSessionExpiry();
-      }
-    });
-    window.addEventListener('focus', checkSessionExpiry);
   }
 
   async function init() {
     wireEvents();
 
     var hash = window.location.hash.replace(/^#/, '').toLowerCase();
-    if (hash === 'guide' || hash === 'changelog' || hash === 'access') {
+    if (hash === 'guide' || hash === 'changelog') {
       state.activeView = hash;
     }
 
-    var params = new URLSearchParams(window.location.search);
-    var authCode = params.get('authCode');
-    var authError = params.get('authError');
+    await Promise.all([loadSession(), loadSite(), loadContent()]);
 
-    try {
-      var tasks = [apiJson('/api/config'), loadContent()];
-      if (!authCode) {
-        tasks.push(restoreSession());
-      }
-      var initial = await Promise.all(tasks);
-      state.config = initial[0];
-    } catch (err) {
-      setBanner('Could not load portal configuration: ' + err.message, 'error');
+    if (!state.siteStorageReady && state.developer) {
+      setBanner('Storage is not set up: bind a KV namespace named CONTENT_KV to the Worker so your edits can be saved.', 'warn');
     }
-
-    renderPortal();
+    applyDeveloperState();
     switchView(state.activeView, false);
-
-    if (authCode || authError) {
-      window.history.replaceState({}, '', window.location.pathname);
-      switchView('access', false);
-      if (authError) {
-        setBanner(authError, 'error');
-      } else if (authCode) {
-        await claimAuthCode(authCode);
-      }
-    }
   }
 
   init();

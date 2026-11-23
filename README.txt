@@ -1,37 +1,37 @@
-VaalAuras — Cloudflare Workers Portal
-======================================
+VaalAuras — Cloudflare Workers Site
+===================================
 
-1. (Optional) Replace public/assets/vaalauras_logo.png with your high-res logo.
+Public site: Home (Download + custom buttons), Guide, Changelog, and Patreon / Twitch / Discord buttons.
+No memberships, no payments, no visitor accounts. The only login is YOUR developer login,
+which unlocks editing of the Home page, Guide and Changelog right on the site.
 
-2. Deploy to Cloudflare Workers:
+1. Deploy to Cloudflare Workers
    Option A (GitHub + Cloudflare Dashboard):
      - Push this folder to a PRIVATE GitHub repo.
-     - In dash.cloudflare.com -> Workers & Pages -> Create -> Import a repository.
+     - dash.cloudflare.com -> Workers & Pages -> Create -> Import a repository.
      - Leave Build command empty and set Deploy command to: npx wrangler deploy
-
-   Option B (From terminal):
+   Option B (terminal):
      npx wrangler login
      npx wrangler deploy
 
-3. Add these Secrets in Cloudflare Dashboard -> Settings -> Variables and Secrets:
-   - SESSION_SIGNING_SECRET   (any random 32+ char string)
-   - TWITCH_CLIENT_ID
-   - TWITCH_CLIENT_SECRET
-   - TWITCH_BROADCASTER_ID    (your numeric Twitch user ID)
-   - TWITCH_CHANNEL_LOGIN     (optional, your Twitch username)
-   - PATREON_CLIENT_ID
-   - PATREON_CLIENT_SECRET
-   - PATREON_CREATOR_URL      (optional, URL to your Patreon page)
-   - DEV_LOGIN_EMAIL          (developer email for fallback login)
-   - DEV_LOGIN_PASSWORD       (secret password for developer login)
-   - DEV_TWITCH_LOGINS        (comma-separated Twitch logins with permanent Developer access)
+2. Add these Secrets (Worker -> Settings -> Variables and Secrets):
+   - SESSION_SIGNING_SECRET   any random string, 32+ characters
+   - DEV_LOGIN_EMAIL          your admin email
+   - DEV_LOGIN_PASSWORD       your admin password
 
-4. REQUIRED for Lifetime Tier 2 / $5 / $10 Access & Guide/Changelog persistence:
-   - Twitch Tier 1 and Patreon $3 are Monthly only.
-   - Twitch Tier 2/3, Patreon $5+, and Patreon $10+ save permanent Lifetime records in KV.
-   - In Cloudflare Dashboard -> Storage & Databases -> KV -> Create namespace.
-   - In your Worker -> Settings -> Bindings -> Add -> KV Namespace -> Variable name: CONTENT_KV.
+   The old Twitch / Patreon secrets (TWITCH_*, PATREON_*, DEV_TWITCH_LOGINS) are no longer used and can be deleted.
 
-5. Register your OAuth Redirect URLs:
-   - Twitch:  https://<your-worker-url>/auth/twitch/callback
-   - Patreon: https://<your-worker-url>/auth/patreon/callback
+3. Bind a KV namespace so edits are saved permanently:
+   - Dashboard -> Storage & Databases -> KV -> Create namespace.
+   - Worker -> Settings -> Bindings -> Add -> KV Namespace -> Variable name: CONTENT_KV.
+   Your existing CONTENT_KV (with Guide / Changelog posts) keeps working as is.
+
+4. Using it
+   - Click "Sign in" (top right) and log in with your developer email and password.
+   - Home: click "Edit page" to change title, tags, text, the Download button link,
+     add / remove / reorder extra buttons, and change the Patreon / Twitch / Discord links.
+   - Guide / Changelog: the same "New Article" / "New Changelog Post" and edit buttons as before.
+   - Visitors only see buttons that have a link. Set your Download link in "Edit page".
+
+Local dev: copy .env.example to .dev.vars, fill it in, run `npm run dev`.
+Tests: `npm test`

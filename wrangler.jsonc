@@ -6,21 +6,10 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS"
-  },
-  "vars": {
-    "APP_NAME": "VaalAuras",
-    "CREATOR_DISPLAY_NAME": "VaalAuras",
-    "APP_PROTOCOL_SCHEME": "vaalauras",
-    "APP_LOCALHOST_PORT": "48912",
-    "PATREON_BASIC_MIN_CENTS": "300",
-    "PATREON_MIN_TIER_CENTS": "500",
-    "PATREON_LIFETIME_T2_CENTS": "500",
-    "PATREON_LIFETIME_PRO_CENTS": "1000",
-    "DEV_TWITCH_LOGINS": "dopalonee"
   }
-  // Required to save user Lifetime Access grants and Guide & Changelog posts permanently on Cloudflare:
-  // Create a free KV namespace (`npx wrangler kv namespace create CONTENT_KV` or via Dashboard),
-  // bind it in Worker Settings -> Bindings (or uncomment below):
+  // Required so your home page, guide and changelog edits are saved permanently.
+  // Create a KV namespace (`npx wrangler kv namespace create CONTENT_KV` or via the Dashboard),
+  // then bind it in Worker Settings -> Bindings (variable name: CONTENT_KV) or uncomment below:
   // ,
   // "kv_namespaces": [
   //   { "binding": "CONTENT_KV", "id": "YOUR_KV_NAMESPACE_ID" }

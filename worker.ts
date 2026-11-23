@@ -5,37 +5,14 @@ import {
   validateChangelogInput,
   validateGuideInput,
 } from './src/lib/content';
+import { DEFAULT_SITE_SETTINGS, validateSiteInput } from './src/lib/site';
 import {
-  applyActiveLifetimeEntitlement,
-  buildDeveloperEntitlement,
-  buildRestoredLifetimeEntitlement,
-  evaluatePatreonMembership,
-  evaluateTwitchSubscription,
-  getLifetimeGrantKvKey,
-  isDeveloperTwitchLogin,
-  mergeLifetimeGrantRecord,
-  type LifetimeGrantRecord,
-} from './src/lib/entitlement';
-import {
-  buildAppLaunchUrl,
-  buildLocalhostCallbackUrl,
   constantTimeEqualStringWeb,
   openPayloadWeb,
   randomHex,
-  sanitizeLocalhostPort,
-  sanitizeProtocolScheme,
   sealPayloadWeb,
-  signLicenseTokenWeb,
-  verifyLicenseTokenWeb,
 } from './src/lib/webTokens';
-import type {
-  AuthProvider,
-  ChangelogPost,
-  EntitlementResult,
-  GuideArticle,
-  PublicAppConfig,
-  VerifiedUser,
-} from './src/types';
+import type { ChangelogPost, GuideArticle, SiteSettings } from './src/types';
 
 export interface KVNamespaceLike {
   get(key: string): Promise<string | null>;
@@ -47,1790 +24,433 @@ export interface AssetsBindingLike {
 }
 
 export interface WorkerEnv {
-  APP_URL?: string;
-  APP_NAME?: string;
-  CREATOR_DISPLAY_NAME?: string;
-  APP_PROTOCOL_SCHEME?: string;
-  APP_LOCALHOST_PORT?: string;
-  TWITCH_CLIENT_ID?: string;
-  TWITCH_CLIENT_SECRET?: string;
-  TWITCH_BROADCASTER_ID?: string;
-  TWITCH_CHANNEL_LOGIN?: string;
-  PATREON_CLIENT_ID?: string;
-  PATREON_CLIENT_SECRET?: string;
-  PATREON_MIN_TIER_CENTS?: string;
-  PATREON_CAMPAIGN_ID?: string;
-  PATREON_TIER_ID?: string;
-  PATREON_CREATOR_URL?: string;
   DEV_LOGIN_EMAIL?: string;
   DEV_LOGIN_PASSWORD?: string;
-  DEV_TWITCH_LOGINS?: string;
   SESSION_SIGNING_SECRET?: string;
   ASSETS?: AssetsBindingLike;
-  AUTH_KV?: KVNamespaceLike;
   CONTENT_KV?: KVNamespaceLike;
 }
 
-interface SealedOAuthState extends Record<string, unknown> {
-  nonce: string;
-  provider: AuthProvider;
-}
-
-interface SealedClaimPayload extends Record<string, unknown> {
-  user: VerifiedUser;
-  entitlement: EntitlementResult;
-  providerAccessToken: string | null;
-  isDemo: boolean;
-}
-
-const SESSION_TTL_SECONDS = 24 * 60 * 60;
 const SESSION_COOKIE_NAME = 'vaal_session';
+const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-interface SealedSessionPayload extends Record<string, unknown> {
-  user: VerifiedUser;
-  entitlement: EntitlementResult;
-  providerAccessToken: string | null;
-  isDemo: boolean;
-  sessionExpiresAt?: number;
-}
+const SITE_KV_KEY = 'content:site:v1';
+const CHANGELOG_KV_KEY = 'content:changelogs:v1';
+const GUIDE_KV_KEY = 'content:guides:v1';
+const MAX_CONTENT_ITEMS = 100;
 
-interface SealedHandoffPayload extends Record<string, unknown> {
-  user: VerifiedUser;
-  entitlement: EntitlementResult;
-}
+const KV_MISSING_ERROR =
+  'Storage is not set up yet. Bind a KV namespace named CONTENT_KV in Cloudflare Worker Settings -> Bindings.';
 
-// Isolate-local bounded replay/revocation cache (complements optional AUTH_KV on Cloudflare)
-const usedJtis = new Set<string>();
-const MAX_LOCAL_JTI_CACHE = 5000;
-
-function trackLocalJti(key: string): void {
-  if (usedJtis.size >= MAX_LOCAL_JTI_CACHE) {
-    const oldest = usedJtis.values().next().value;
-    if (oldest) {
-      usedJtis.delete(oldest);
-    }
-  }
-  usedJtis.add(key);
-}
-
-function getEntitlementKv(env: WorkerEnv): KVNamespaceLike | null {
-  return env.AUTH_KV || env.CONTENT_KV || null;
-}
-
-async function isJtiConsumed(env: WorkerEnv, namespace: string, jti: string): Promise<boolean> {
-  const key = `${namespace}:${jti}`;
-  if (usedJtis.has(key)) {
-    return true;
-  }
-  const kv = getEntitlementKv(env);
-  if (kv) {
-    const val = await kv.get(key);
-    if (val !== null) {
-      trackLocalJti(key);
-      return true;
-    }
-  }
-  return false;
-}
-
-async function consumeJti(
-  env: WorkerEnv,
-  namespace: string,
-  jti: string,
-  ttlSeconds: number
-): Promise<boolean> {
-  const already = await isJtiConsumed(env, namespace, jti);
-  if (already) {
-    return false;
-  }
-  const key = `${namespace}:${jti}`;
-  trackLocalJti(key);
-  const kv = getEntitlementKv(env);
-  if (kv) {
-    await kv.put(key, '1', { expirationTtl: Math.max(60, ttlSeconds) });
-  }
-  return true;
-}
-
-function getSigningSecret(env: WorkerEnv): string | null {
-  const raw = (env.SESSION_SIGNING_SECRET || '').trim();
-  if (raw.length >= 16) {
-    return raw;
-  }
-  return null;
-}
-
-function resolveAppBaseUrl(request: Request, env: WorkerEnv): string {
-  const configured = (env.APP_URL || '').trim();
-  if (configured && configured !== 'MY_APP_URL' && /^https?:\/\//i.test(configured)) {
-    return configured.replace(/\/+$/, '');
-  }
-  return new URL(request.url).origin.replace(/\/+$/, '');
-}
-
-function getTwitchConfig(env: WorkerEnv) {
-  const clientId = (env.TWITCH_CLIENT_ID || '').trim();
-  const clientSecret = (env.TWITCH_CLIENT_SECRET || '').trim();
-  const broadcasterId = (env.TWITCH_BROADCASTER_ID || '').trim();
-  const channelLogin = (env.TWITCH_CHANNEL_LOGIN || '').trim();
-  const configured = Boolean(clientId && clientSecret && broadcasterId);
-  return { clientId, clientSecret, broadcasterId, channelLogin, configured };
-}
-
-function getPatreonConfig(env: WorkerEnv) {
-  const clientId = (env.PATREON_CLIENT_ID || '').trim();
-  const clientSecret = (env.PATREON_CLIENT_SECRET || '').trim();
-  const campaignId = (env.PATREON_CAMPAIGN_ID || '').trim();
-  const tierId = (env.PATREON_TIER_ID || '').trim();
-  const creatorUrl = (env.PATREON_CREATOR_URL || '').trim();
-  const parsedMin = Number.parseInt(env.PATREON_MIN_TIER_CENTS || '500', 10);
-  const minTierCents = Number.isFinite(parsedMin) && parsedMin >= 0 ? parsedMin : 500;
-  const configured = Boolean(clientId && clientSecret);
-  return {
-    clientId,
-    clientSecret,
-    campaignId,
-    tierId,
-    creatorUrl,
-    minTierCents,
-    configured,
-  };
-}
-
-function getDeveloperLoginConfig(env: WorkerEnv) {
-  const email = (env.DEV_LOGIN_EMAIL || '').trim().toLowerCase();
-  const password = env.DEV_LOGIN_PASSWORD || '';
-  return {
-    email,
-    password,
-    configured: Boolean(email && password.length > 0),
-  };
-}
-
-function getPublicConfig(request: Request, env: WorkerEnv): PublicAppConfig {
-  const appBaseUrl = resolveAppBaseUrl(request, env);
-  const twitch = getTwitchConfig(env);
-  const patreon = getPatreonConfig(env);
-  const developerLogin = getDeveloperLoginConfig(env);
-  const signingConfigured = Boolean(getSigningSecret(env));
-
-  return {
-    appName: (env.APP_NAME || 'VaalAuras').trim() || 'VaalAuras',
-    creatorDisplayName: (env.CREATOR_DISPLAY_NAME || 'VaalAuras').trim() || 'VaalAuras',
-    protocolScheme: sanitizeProtocolScheme(env.APP_PROTOCOL_SCHEME),
-    localhostPort: sanitizeLocalhostPort(env.APP_LOCALHOST_PORT),
-    patreonMinTierCents: patreon.minTierCents,
-    twitchConfigured: twitch.configured,
-    patreonConfigured: patreon.configured,
-    developerLoginConfigured: developerLogin.configured,
-    twitchCallbackUrl: `${appBaseUrl}/auth/twitch/callback`,
-    patreonCallbackUrl: `${appBaseUrl}/auth/patreon/callback`,
-    appBaseUrl,
-    twitchChannelUrl: twitch.channelLogin
-      ? `https://www.twitch.tv/${encodeURIComponent(twitch.channelLogin)}`
-      : null,
-    patreonCreatorUrl:
-      patreon.creatorUrl && /^https?:\/\//i.test(patreon.creatorUrl)
-        ? patreon.creatorUrl
-        : null,
-    signingConfigured,
-    kvConfigured: Boolean(env.CONTENT_KV || env.AUTH_KV),
-  };
-}
+/* ------------------------------------------------------------------ */
+/* Helpers                                                             */
+/* ------------------------------------------------------------------ */
 
 function jsonResponse(
   body: unknown,
   status: number = 200,
-  extraHeaders: Record<string, string> = {},
   setCookies: string[] = []
 ): Response {
   const headers = new Headers({
     'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store, no-cache, must-revalidate',
-    Pragma: 'no-cache',
-    Vary: 'Cookie, Authorization',
-    ...extraHeaders,
+    'Cache-Control': 'no-store',
+    Vary: 'Cookie',
   });
   for (const cookie of setCookies) {
     headers.append('Set-Cookie', cookie);
   }
-  return new Response(JSON.stringify(body), {
-    status,
-    headers,
-  });
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
-function htmlResponse(
-  html: string,
-  status: number = 200,
-  extraHeaders: Record<string, string> = {}
-): Response {
-  return new Response(html, {
-    status,
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-store',
-      ...extraHeaders,
-    },
-  });
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function parseCookies(cookieHeader: string | null): Record<string, string> {
-  const result: Record<string, string> = {};
-  if (!cookieHeader) {
-    return result;
-  }
-  for (const part of cookieHeader.split(';')) {
-    const eqIndex = part.indexOf('=');
-    if (eqIndex <= 0) continue;
-    const name = part.slice(0, eqIndex).trim();
-    const rawVal = part.slice(eqIndex + 1).trim();
-    if (!name) continue;
-    try {
-      result[name] = decodeURIComponent(rawVal);
-    } catch {
-      result[name] = rawVal;
-    }
-  }
-  return result;
-}
-
-function isHttpsRequest(request: Request): boolean {
-  const forwarded = (request.headers.get('x-forwarded-proto') || '')
-    .split(',')[0]
-    .trim()
-    .toLowerCase();
-  if (forwarded === 'https') {
-    return true;
-  }
-  return new URL(request.url).protocol === 'https:';
-}
-
-function isEmbeddedFrameRequest(request: Request): boolean {
-  if ((request.headers.get('x-embedded-frame') || '').trim() === '1') {
-    return true;
-  }
-  const fetchDest = (request.headers.get('sec-fetch-dest') || '').trim().toLowerCase();
-  return fetchDest === 'iframe';
-}
-
-function buildCookieHeader(
-  request: Request,
-  name: string,
-  value: string,
-  maxAge: number
-): string {
-  const clampedMaxAge = Math.max(0, Math.floor(maxAge));
-  const expiresStr =
-    clampedMaxAge <= 0
-      ? 'Thu, 01 Jan 1970 00:00:00 GMT'
-      : new Date(Date.now() + clampedMaxAge * 1000).toUTCString();
-  const parts = [
-    `${name}=${encodeURIComponent(value)}`,
-    'Path=/',
-    `Max-Age=${clampedMaxAge}`,
-    `Expires=${expiresStr}`,
-    'HttpOnly',
-  ];
-  if (isHttpsRequest(request)) {
-    parts.push('Secure');
-    if (isEmbeddedFrameRequest(request)) {
-      parts.push('SameSite=None', 'Partitioned');
-    } else {
-      parts.push('SameSite=Lax');
-    }
-  } else {
-    parts.push('SameSite=Lax');
-  }
-  return parts.join('; ');
-}
-
-function buildStateCookieHeader(request: Request, value: string, maxAge: number): string {
-  const clampedMaxAge = Math.max(0, Math.floor(maxAge));
-  const parts = [
-    `vaal_oauth_state=${encodeURIComponent(value)}`,
-    'Path=/',
-    `Max-Age=${clampedMaxAge}`,
-    'HttpOnly',
-  ];
-  if (isHttpsRequest(request)) {
-    parts.push('Secure', 'SameSite=None', 'Partitioned');
-  } else {
-    parts.push('SameSite=Lax');
-  }
-  return parts.join('; ');
-}
-
-function buildSessionCookieHeader(request: Request, value: string, maxAge: number): string {
-  return buildCookieHeader(request, SESSION_COOKIE_NAME, value, maxAge);
-}
-
-function renderPopupCallbackHtml(options: {
-  ok: boolean;
-  provider?: AuthProvider;
-  authCode?: string;
-  errorMessage?: string;
-}): Response {
-  const safeTitle = options.ok ? 'Verification Complete' : 'Login Issue';
-  const safeBody = options.ok
-    ? 'Returning you to VaalAuras...'
-    : escapeHtml(options.errorMessage || 'Authentication failed.');
-
-  const payloadJson = options.ok
-    ? JSON.stringify({
-        type: 'VAAL_AUTH_COMPLETE',
-        authCode: options.authCode,
-        provider: options.provider,
-      }).replace(/</g, '\\u003c')
-    : JSON.stringify({
-        type: 'VAAL_AUTH_ERROR',
-        error: options.errorMessage || 'Authentication failed.',
-      }).replace(/</g, '\\u003c');
-
-  const redirectTarget = options.ok
-    ? `/?authCode=${encodeURIComponent(options.authCode || '')}`
-    : `/?authError=${encodeURIComponent(options.errorMessage || 'Authentication failed.')}`;
-
-  const html = `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${safeTitle} — VaalAuras</title>
-    <style>
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: #0D0A0B;
-        color: #EFE6DC;
-        font-family: system-ui, -apple-system, sans-serif;
-      }
-      .card {
-        max-width: 420px;
-        margin: 24px;
-        padding: 28px;
-        border-radius: 10px;
-        background: #161112;
-        border: 1px solid #2D2224;
-        text-align: center;
-      }
-      h1 {
-        margin: 0 0 10px;
-        font-size: 1.15rem;
-        color: ${options.ok ? '#D4A257' : '#FCA5A5'};
-      }
-      p {
-        margin: 0 0 16px;
-        font-size: 0.92rem;
-        color: #A3948B;
-        line-height: 1.5;
-      }
-      a {
-        color: #D4A257;
-        font-size: 0.85rem;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <h1>${safeTitle}</h1>
-      <p>${safeBody}</p>
-      <a href="${redirectTarget}">Continue to VaalAuras</a>
-    </div>
-    <script>
-      (function () {
-        var payload = ${payloadJson};
-        if (window.opener) {
-          try {
-            window.opener.postMessage(payload, window.location.origin);
-          } catch (_) {
-            window.opener.postMessage(payload, '*');
-          }
-          setTimeout(function () { window.close(); }, 180);
-        } else {
-          window.location.replace(${JSON.stringify(redirectTarget)});
-        }
-      })();
-    </script>
-  </body>
-</html>`;
-
-  return htmlResponse(html, options.ok ? 200 : 400);
-}
-
-function sanitizeAvatarUrl(raw?: string | null): string | null {
-  const trimmed = (raw || '').trim();
-  if (!trimmed || trimmed.length > 512 || !/^https?:\/\//i.test(trimmed)) {
-    return null;
-  }
-  return trimmed;
-}
-
-async function loadLifetimeGrant(
-  env: WorkerEnv,
-  userId: string
-): Promise<LifetimeGrantRecord | null> {
-  const kv = getEntitlementKv(env);
-  if (!kv) {
-    return null;
-  }
-  try {
-    const raw = await kv.get(getLifetimeGrantKvKey(userId));
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as Partial<LifetimeGrantRecord>;
-    if (!parsed || typeof parsed !== 'object' || parsed.userId !== userId) {
-      return null;
-    }
-    return parsed as LifetimeGrantRecord;
-  } catch {
-    return null;
-  }
-}
-
-async function resolveUserLifetimeEntitlement(
-  env: WorkerEnv,
-  user: VerifiedUser,
-  liveEntitlement: EntitlementResult
-): Promise<EntitlementResult> {
-  const existing = await loadLifetimeGrant(env, user.id);
-
-  if (liveEntitlement.active) {
-    const kv = getEntitlementKv(env);
-    if (kv) {
-      const nextRecord = mergeLifetimeGrantRecord(existing, user, liveEntitlement);
-      await kv.put(getLifetimeGrantKvKey(user.id), JSON.stringify(nextRecord));
-    }
-    return applyActiveLifetimeEntitlement(liveEntitlement, existing);
-  }
-
-  if (existing) {
-    return buildRestoredLifetimeEntitlement(existing, liveEntitlement.checkedAt);
-  }
-
-  return liveEntitlement;
-}
-
-async function fetchTwitchUserAndSub(
-  accessToken: string,
-  env: WorkerEnv
-): Promise<{ user: VerifiedUser; entitlement: EntitlementResult }> {
-  const twitch = getTwitchConfig(env);
-  if (!twitch.configured) {
-    throw new Error('Twitch OAuth credentials are not configured.');
-  }
-
-  const userResp = await fetch('https://api.twitch.tv/helix/users', {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Client-Id': twitch.clientId,
-    },
-  });
-
-  if (!userResp.ok) {
-    throw new Error(`Twitch user profile request failed (${userResp.status}).`);
-  }
-
-  const userJson = (await userResp.json()) as {
-    data?: Array<{
-      id: string;
-      login: string;
-      display_name: string;
-      profile_image_url?: string;
-    }>;
-  };
-  const twitchUser = userJson.data?.[0];
-  if (!twitchUser) {
-    throw new Error('Twitch returned an empty user profile.');
-  }
-
-  const user: VerifiedUser = {
-    id: `twitch:${twitchUser.id}`,
-    provider: 'twitch',
-    username: twitchUser.login,
-    displayName: twitchUser.display_name || twitchUser.login,
-    avatarUrl: sanitizeAvatarUrl(twitchUser.profile_image_url),
-  };
-
-  if (isDeveloperTwitchLogin(twitchUser.login, env.DEV_TWITCH_LOGINS)) {
-    return {
-      user,
-      entitlement: buildDeveloperEntitlement(
-        'twitch',
-        'Developer Twitch account verified (permanent access).'
-      ),
-    };
-  }
-
-  const subUrl = new URL('https://api.twitch.tv/helix/subscriptions/user');
-  subUrl.searchParams.set('broadcaster_id', twitch.broadcasterId);
-  subUrl.searchParams.set('user_id', twitchUser.id);
-
-  const subResp = await fetch(subUrl.toString(), {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Client-Id': twitch.clientId,
-    },
-  });
-
-  let subBody: unknown = null;
-  try {
-    subBody = await subResp.json();
-  } catch {
-    subBody = null;
-  }
-
-  const liveEntitlement = evaluateTwitchSubscription(
-    subResp.status,
-    subBody,
-    twitch.broadcasterId
-  );
-  const entitlement = await resolveUserLifetimeEntitlement(env, user, liveEntitlement);
-
-  return {
-    user,
-    entitlement,
-  };
-}
-
-async function fetchPatreonUserAndMembership(
-  accessToken: string,
-  env: WorkerEnv
-): Promise<{ user: VerifiedUser; entitlement: EntitlementResult }> {
-  const patreon = getPatreonConfig(env);
-  if (!patreon.configured) {
-    throw new Error('Patreon OAuth credentials are not configured.');
-  }
-
-  const identityUrl = new URL('https://www.patreon.com/api/oauth2/v2/identity');
-  identityUrl.searchParams.set(
-    'include',
-    'memberships,memberships.currently_entitled_tiers,memberships.campaign'
-  );
-  identityUrl.searchParams.set('fields[user]', 'full_name,email,image_url,vanity');
-  identityUrl.searchParams.set(
-    'fields[member]',
-    'patron_status,currently_entitled_amount_cents,will_pay_amount_cents,last_charge_status,lifetime_support_cents'
-  );
-  identityUrl.searchParams.set('fields[tier]', 'title,amount_cents');
-
-  const identityResp = await fetch(identityUrl.toString(), {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
-
-  if (!identityResp.ok) {
-    throw new Error(`Patreon identity request failed (${identityResp.status}).`);
-  }
-
-  const payload = (await identityResp.json()) as {
-    data?: {
-      id?: string;
-      attributes?: {
-        full_name?: string;
-        vanity?: string;
-        image_url?: string;
-      };
-    };
-  };
-
-  const patreonId = payload.data?.id;
-  if (!patreonId) {
-    throw new Error('Patreon returned an invalid user identity.');
-  }
-
-  const displayName =
-    payload.data?.attributes?.full_name ||
-    payload.data?.attributes?.vanity ||
-    `Patron ${patreonId}`;
-  const username = payload.data?.attributes?.vanity || displayName;
-
-  const user: VerifiedUser = {
-    id: `patreon:${patreonId}`,
-    provider: 'patreon',
-    username,
-    displayName,
-    avatarUrl: sanitizeAvatarUrl(payload.data?.attributes?.image_url),
-  };
-
-  const liveEntitlement = evaluatePatreonMembership(payload, {
-    minTierCents: patreon.minTierCents,
-    requiredCampaignId: patreon.campaignId || undefined,
-    requiredTierId: patreon.tierId || undefined,
-  });
-  const entitlement = await resolveUserLifetimeEntitlement(env, user, liveEntitlement);
-
-  return {
-    user,
-    entitlement,
-  };
-}
-
-function isCookieMutationCsrfSafe(request: Request): boolean {
-  const method = request.method.toUpperCase();
-  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
-    return true;
-  }
-  if ((request.headers.get('x-requested-with') || '').trim() === 'VaalAuras') {
-    return true;
-  }
-  const originHeader = (request.headers.get('origin') || '').trim();
-  if (!originHeader) {
-    return false;
-  }
-  try {
-    const originHost = new URL(originHeader).host.toLowerCase();
-    const requestHost = (
-      request.headers.get('x-forwarded-host') ||
-      request.headers.get('host') ||
-      new URL(request.url).host
-    )
-      .split(',')[0]
-      .trim()
-      .toLowerCase();
-    return Boolean(originHost && requestHost && originHost === requestHost);
-  } catch {
-    return false;
-  }
-}
-
-async function readAuthenticatedSession(
-  request: Request,
-  env: WorkerEnv
-): Promise<{
-  session: SealedSessionPayload;
-  jti: string;
-  signingSecret: string;
-  expiresAtSec: number;
-  remainingSeconds: number;
-  token: string;
-} | null> {
-  const signingSecret = getSigningSecret(env);
-  if (!signingSecret) {
-    return null;
-  }
-
-  const header = request.headers.get('authorization') || '';
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  let token = match?.[1]?.trim() || '';
-
-  if (!token) {
-    const cookies = parseCookies(request.headers.get('cookie'));
-    const cookieToken = (cookies[SESSION_COOKIE_NAME] || '').trim();
-    if (!cookieToken || !isCookieMutationCsrfSafe(request)) {
-      return null;
-    }
-    token = cookieToken;
-  }
-
-  if (!token || token.length > 8192) {
-    return null;
-  }
-
-  const opened = await openPayloadWeb<SealedSessionPayload>(
-    token,
-    signingSecret,
-    'session'
-  );
-  if (!opened.valid) {
-    return null;
-  }
-
-  if (await isJtiConsumed(env, 'revoked_session', opened.data.jti)) {
-    return null;
-  }
-
-  const nowSec = Math.floor(Date.now() / 1000);
-  const expiresAtSec =
-    typeof opened.data.sessionExpiresAt === 'number'
-      ? Math.min(opened.data.sessionExpiresAt, opened.data.exp)
-      : opened.data.exp;
-  const remainingSeconds = expiresAtSec - nowSec;
-  if (remainingSeconds <= 0) {
-    return null;
-  }
-
-  return {
-    session: opened.data,
-    jti: opened.data.jti,
-    signingSecret,
-    expiresAtSec,
-    remainingSeconds,
-    token,
-  };
-}
-
-async function safeParseJsonBody(request: Request): Promise<Record<string, unknown> | null> {
+async function readJsonBody(request: Request): Promise<Record<string, unknown> | null> {
   try {
     const data = await request.json();
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      return null;
-    }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
     return data as Record<string, unknown>;
   } catch {
     return null;
   }
 }
 
-const CHANGELOG_KV_KEY = 'content:changelogs:v1';
-const GUIDE_KV_KEY = 'content:guides:v1';
-const MAX_CONTENT_ITEMS = 100;
-
-function getContentKv(env: WorkerEnv): KVNamespaceLike | null {
-  return env.CONTENT_KV || env.AUTH_KV || null;
+function parseCookies(header: string | null): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!header) return out;
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx <= 0) continue;
+    const name = part.slice(0, idx).trim();
+    const raw = part.slice(idx + 1).trim();
+    if (!name) continue;
+    try {
+      out[name] = decodeURIComponent(raw);
+    } catch {
+      out[name] = raw;
+    }
+  }
+  return out;
 }
 
-function isDeveloperSession(session: SealedSessionPayload): boolean {
-  return (
-    session.entitlement.active === true &&
-    (session.user.provider === 'developer' ||
-      session.entitlement.tierCode === 'developer')
-  );
+function isHttps(request: Request): boolean {
+  const forwarded = (request.headers.get('x-forwarded-proto') || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  return forwarded === 'https' || new URL(request.url).protocol === 'https:';
 }
 
-async function requireDeveloperAuth(
+function buildSessionCookie(request: Request, value: string, maxAge: number): string {
+  const age = Math.max(0, Math.floor(maxAge));
+  const parts = [
+    `${SESSION_COOKIE_NAME}=${encodeURIComponent(value)}`,
+    'Path=/',
+    `Max-Age=${age}`,
+    'HttpOnly',
+    'SameSite=Strict',
+  ];
+  if (age === 0) parts.push('Expires=Thu, 01 Jan 1970 00:00:00 GMT');
+  if (isHttps(request)) parts.push('Secure');
+  return parts.join('; ');
+}
+
+/** State-changing requests must carry the custom header (cannot be sent cross-site without CORS). */
+function isMutationSafe(request: Request): boolean {
+  const method = request.method.toUpperCase();
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return true;
+  return (request.headers.get('x-requested-with') || '').trim() === 'VaalAuras';
+}
+
+function getSigningSecret(env: WorkerEnv): string | null {
+  const raw = (env.SESSION_SIGNING_SECRET || '').trim();
+  return raw.length >= 16 ? raw : null;
+}
+
+function getDevConfig(env: WorkerEnv) {
+  const email = (env.DEV_LOGIN_EMAIL || '').trim().toLowerCase();
+  const password = env.DEV_LOGIN_PASSWORD || '';
+  return { email, password, configured: Boolean(email && password) };
+}
+
+/* ------------------------------------------------------------------ */
+/* Developer session                                                   */
+/* ------------------------------------------------------------------ */
+
+async function isDeveloper(request: Request, env: WorkerEnv): Promise<boolean> {
+  const secret = getSigningSecret(env);
+  if (!secret) return false;
+  const token = (parseCookies(request.headers.get('cookie'))[SESSION_COOKIE_NAME] || '').trim();
+  if (!token || token.length > 4096) return false;
+  const opened = await openPayloadWeb<{ role: string }>(token, secret, 'session');
+  return opened.valid && opened.data.role === 'developer';
+}
+
+async function requireDeveloper(
   request: Request,
   env: WorkerEnv
-): Promise<{ ok: true } | { ok: false; response: Response }> {
-  const auth = await readAuthenticatedSession(request, env);
-  if (!auth) {
-    return {
-      ok: false,
-      response: jsonResponse({ error: 'Developer sign-in required.' }, 401),
-    };
+): Promise<Response | null> {
+  if (!isMutationSafe(request)) {
+    return jsonResponse({ error: 'Blocked request.' }, 403);
   }
-  if (!isDeveloperSession(auth.session)) {
-    return {
-      ok: false,
-      response: jsonResponse(
-        { error: 'Only the developer account can edit Guide or Changelog posts.' },
-        403
-      ),
-    };
+  if (!(await isDeveloper(request, env))) {
+    return jsonResponse({ error: 'Developer sign-in required.' }, 401);
   }
-  return { ok: true };
+  return null;
 }
 
-async function loadChangelogPosts(env: WorkerEnv): Promise<ChangelogPost[]> {
-  const kv = getContentKv(env);
-  if (!kv) {
-    return DEFAULT_CHANGELOG_POSTS;
+// Isolate-local brute-force throttle for the login endpoint.
+const loginFailures = new Map<string, { count: number; resetAt: number }>();
+const MAX_LOGIN_FAILURES = 6;
+const LOGIN_WINDOW_MS = 10 * 60 * 1000;
+
+function clientKey(request: Request): string {
+  return request.headers.get('cf-connecting-ip') || 'unknown';
+}
+
+function isThrottled(key: string): boolean {
+  const entry = loginFailures.get(key);
+  if (!entry) return false;
+  if (entry.resetAt <= Date.now()) {
+    loginFailures.delete(key);
+    return false;
   }
+  return entry.count >= MAX_LOGIN_FAILURES;
+}
+
+function recordFailure(key: string): void {
+  const now = Date.now();
+  const entry = loginFailures.get(key);
+  if (!entry || entry.resetAt <= now) {
+    loginFailures.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+  } else {
+    entry.count += 1;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* KV-backed content                                                   */
+/* ------------------------------------------------------------------ */
+
+async function loadJson<T>(env: WorkerEnv, key: string, fallback: T): Promise<T> {
+  const kv = env.CONTENT_KV;
+  if (!kv) return fallback;
   try {
-    const raw = await kv.get(CHANGELOG_KV_KEY);
-    if (!raw) {
-      return DEFAULT_CHANGELOG_POSTS;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as ChangelogPost[]) : DEFAULT_CHANGELOG_POSTS;
+    const raw = await kv.get(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
   } catch {
-    return DEFAULT_CHANGELOG_POSTS;
+    return fallback;
   }
 }
 
-async function loadGuideArticles(env: WorkerEnv): Promise<GuideArticle[]> {
-  const kv = getContentKv(env);
-  if (!kv) {
-    return DEFAULT_GUIDE_ARTICLES;
-  }
-  try {
-    const raw = await kv.get(GUIDE_KV_KEY);
-    if (!raw) {
-      return DEFAULT_GUIDE_ARTICLES;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as GuideArticle[]) : DEFAULT_GUIDE_ARTICLES;
-  } catch {
-    return DEFAULT_GUIDE_ARTICLES;
-  }
+async function loadSite(env: WorkerEnv): Promise<SiteSettings> {
+  const stored = await loadJson<Partial<SiteSettings> | null>(env, SITE_KV_KEY, null);
+  if (!stored || typeof stored !== 'object') return DEFAULT_SITE_SETTINGS;
+  return {
+    ...DEFAULT_SITE_SETTINGS,
+    ...stored,
+    socials: { ...DEFAULT_SITE_SETTINGS.socials, ...(stored.socials || {}) },
+    buttons: Array.isArray(stored.buttons) ? stored.buttons : DEFAULT_SITE_SETTINGS.buttons,
+    tags: Array.isArray(stored.tags) ? stored.tags : DEFAULT_SITE_SETTINGS.tags,
+  };
 }
 
-export async function handleApiOrAuthRequest(
+async function loadChangelogs(env: WorkerEnv): Promise<ChangelogPost[]> {
+  const data = await loadJson<unknown>(env, CHANGELOG_KV_KEY, DEFAULT_CHANGELOG_POSTS);
+  return Array.isArray(data) ? (data as ChangelogPost[]) : DEFAULT_CHANGELOG_POSTS;
+}
+
+async function loadGuides(env: WorkerEnv): Promise<GuideArticle[]> {
+  const data = await loadJson<unknown>(env, GUIDE_KV_KEY, DEFAULT_GUIDE_ARTICLES);
+  return Array.isArray(data) ? (data as GuideArticle[]) : DEFAULT_GUIDE_ARTICLES;
+}
+
+/* ------------------------------------------------------------------ */
+/* Router                                                              */
+/* ------------------------------------------------------------------ */
+
+export async function handleApiRequest(
   request: Request,
   env: WorkerEnv
 ): Promise<Response | null> {
   const url = new URL(request.url);
-  const pathname = url.pathname;
+  const { pathname } = url;
   const method = request.method.toUpperCase();
 
-  // 1. Public Portal Configuration
-  if (method === 'GET' && pathname === '/api/config') {
-    return jsonResponse(getPublicConfig(request, env));
+  if (!pathname.startsWith('/api/')) return null;
+
+  /* ---- Auth: developer login only ---- */
+
+  if (method === 'GET' && pathname === '/api/session') {
+    const dev = getDevConfig(env);
+    return jsonResponse({
+      developer: await isDeveloper(request, env),
+      loginConfigured: dev.configured && Boolean(getSigningSecret(env)),
+      storageReady: Boolean(env.CONTENT_KV),
+    });
   }
 
-  // 2. Build Twitch OAuth URL
-  if (method === 'GET' && pathname === '/api/auth/twitch/url') {
-    const signingSecret = getSigningSecret(env);
-    if (!signingSecret) {
+  if (method === 'POST' && pathname === '/api/login') {
+    if (!isMutationSafe(request)) return jsonResponse({ error: 'Blocked request.' }, 403);
+
+    const secret = getSigningSecret(env);
+    const dev = getDevConfig(env);
+    if (!secret || !dev.configured) {
       return jsonResponse(
-        { error: 'SESSION_SIGNING_SECRET is not configured in Cloudflare Secrets yet.' },
-        503
-      );
-    }
-    const twitch = getTwitchConfig(env);
-    if (!twitch.configured) {
-      return jsonResponse(
-        { error: 'Twitch OAuth is not configured yet. Add TWITCH_* secrets first.' },
-        400
-      );
-    }
-
-    const nonce = randomHex(16);
-    const state = await sealPayloadWeb<SealedOAuthState>(
-      { nonce, provider: 'twitch' },
-      signingSecret,
-      'oauth_state',
-      600
-    );
-
-    const authUrl = new URL('https://id.twitch.tv/oauth2/authorize');
-    authUrl.searchParams.set('client_id', twitch.clientId);
-    authUrl.searchParams.set('redirect_uri', `${resolveAppBaseUrl(request, env)}/auth/twitch/callback`);
-    authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('scope', 'user:read:subscriptions');
-    authUrl.searchParams.set('state', state);
-
-    return jsonResponse(
-      { url: authUrl.toString() },
-      200,
-      { 'Set-Cookie': buildStateCookieHeader(request, nonce, 600) }
-    );
-  }
-
-  // 3. Build Patreon OAuth URL
-  if (method === 'GET' && pathname === '/api/auth/patreon/url') {
-    const signingSecret = getSigningSecret(env);
-    if (!signingSecret) {
-      return jsonResponse(
-        { error: 'SESSION_SIGNING_SECRET is not configured in Cloudflare Secrets yet.' },
-        503
-      );
-    }
-    const patreon = getPatreonConfig(env);
-    if (!patreon.configured) {
-      return jsonResponse(
-        { error: 'Patreon OAuth is not configured yet. Add PATREON_* secrets first.' },
-        400
-      );
-    }
-
-    const nonce = randomHex(16);
-    const state = await sealPayloadWeb<SealedOAuthState>(
-      { nonce, provider: 'patreon' },
-      signingSecret,
-      'oauth_state',
-      600
-    );
-
-    const authUrl = new URL('https://www.patreon.com/oauth2/authorize');
-    authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('client_id', patreon.clientId);
-    authUrl.searchParams.set('redirect_uri', `${resolveAppBaseUrl(request, env)}/auth/patreon/callback`);
-    authUrl.searchParams.set('scope', 'identity identity.memberships');
-    authUrl.searchParams.set('state', state);
-
-    return jsonResponse(
-      { url: authUrl.toString() },
-      200,
-      { 'Set-Cookie': buildStateCookieHeader(request, nonce, 600) }
-    );
-  }
-
-  // 4. Twitch OAuth Callback
-  if (method === 'GET' && (pathname === '/auth/twitch/callback' || pathname === '/auth/twitch/callback/')) {
-    const signingSecret = getSigningSecret(env);
-    if (!signingSecret) {
-      return renderPopupCallbackHtml({
-        ok: false,
-        errorMessage: 'Server signing key is not configured yet.',
-      });
-    }
-
-    const code = url.searchParams.get('code');
-    const rawState = url.searchParams.get('state');
-    const oauthError = url.searchParams.get('error');
-    const oauthErrorDesc = url.searchParams.get('error_description');
-
-    if (oauthError) {
-      return renderPopupCallbackHtml({
-        ok: false,
-        errorMessage: oauthErrorDesc || `Twitch authorization denied (${oauthError}).`,
-      });
-    }
-
-    if (!code || !rawState) {
-      return renderPopupCallbackHtml({
-        ok: false,
-        errorMessage: 'Missing authorization code or state parameter.',
-      });
-    }
-
-    const openedState = await openPayloadWeb<SealedOAuthState>(
-      rawState,
-      signingSecret,
-      'oauth_state'
-    );
-    if (!openedState.valid || openedState.data.provider !== 'twitch') {
-      return renderPopupCallbackHtml({
-        ok: false,
-        errorMessage: 'Login session expired or invalid CSRF state. Please try again.',
-      });
-    }
-
-    const cookies = parseCookies(request.headers.get('cookie'));
-    if (cookies.vaal_oauth_state && cookies.vaal_oauth_state !== openedState.data.nonce) {
-      return renderPopupCallbackHtml({
-        ok: false,
-        errorMessage: 'Login browser state mismatch. Please start login again.',
-      });
-    }
-
-    const twitch = getTwitchConfig(env);
-    if (!twitch.configured) {
-      return renderPopupCallbackHtml({
-        ok: false,
-        errorMessage: 'Twitch OAuth is not configured on this server.',
-      });
-    }
-
-    try {
-      const tokenBody = new URLSearchParams({
-        client_id: twitch.clientId,
-        client_secret: twitch.clientSecret,
-        code,
-        grant_type: 'authorization_code',
-        redirect_uri: `${resolveAppBaseUrl(request, env)}/auth/twitch/callback`,
-      });
-
-      const tokenResp = await fetch('https://id.twitch.tv/oauth2/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: tokenBody.toString(),
-      });
-
-      if (!tokenResp.ok) {
-        return renderPopupCallbackHtml({
-          ok: false,
-          errorMessage: 'Twitch declined the authorization code. Verify your Callback URL and secrets.',
-        });
-      }
-
-      const tokenJson = (await tokenResp.json()) as { access_token?: string };
-      if (!tokenJson.access_token) {
-        return renderPopupCallbackHtml({
-          ok: false,
-          errorMessage: 'Twitch did not return an access token.',
-        });
-      }
-
-      const { user, entitlement } = await fetchTwitchUserAndSub(tokenJson.access_token, env);
-      const authCode = await sealPayloadWeb<SealedClaimPayload>(
         {
-          user,
-          entitlement,
-          providerAccessToken: tokenJson.access_token,
-          isDemo: false,
+          error:
+            'Login is not configured. Set SESSION_SIGNING_SECRET, DEV_LOGIN_EMAIL and DEV_LOGIN_PASSWORD as Worker secrets.',
         },
-        signingSecret,
-        'auth_claim',
-        600
-      );
-
-      const resp = renderPopupCallbackHtml({ ok: true, provider: 'twitch', authCode });
-      resp.headers.set('Set-Cookie', buildStateCookieHeader(request, '', 0));
-      return resp;
-    } catch (err) {
-      return renderPopupCallbackHtml({
-        ok: false,
-        errorMessage: err instanceof Error ? err.message : 'Twitch verification failed.',
-      });
-    }
-  }
-
-  // 5. Patreon OAuth Callback
-  if (method === 'GET' && (pathname === '/auth/patreon/callback' || pathname === '/auth/patreon/callback/')) {
-    const signingSecret = getSigningSecret(env);
-    if (!signingSecret) {
-      return renderPopupCallbackHtml({
-        ok: false,
-        errorMessage: 'Server signing key is not configured yet.',
-      });
-    }
-
-    const code = url.searchParams.get('code');
-    const rawState = url.searchParams.get('state');
-    const oauthError = url.searchParams.get('error');
-
-    if (oauthError) {
-      return renderPopupCallbackHtml({
-        ok: false,
-        errorMessage: `Patreon authorization denied (${oauthError}).`,
-      });
-    }
-
-    if (!code || !rawState) {
-      return renderPopupCallbackHtml({
-        ok: false,
-        errorMessage: 'Missing authorization code or state parameter.',
-      });
-    }
-
-    const openedState = await openPayloadWeb<SealedOAuthState>(
-      rawState,
-      signingSecret,
-      'oauth_state'
-    );
-    if (!openedState.valid || openedState.data.provider !== 'patreon') {
-      return renderPopupCallbackHtml({
-        ok: false,
-        errorMessage: 'Login session expired or invalid CSRF state. Please try again.',
-      });
-    }
-
-    const cookies = parseCookies(request.headers.get('cookie'));
-    if (cookies.vaal_oauth_state && cookies.vaal_oauth_state !== openedState.data.nonce) {
-      return renderPopupCallbackHtml({
-        ok: false,
-        errorMessage: 'Login browser state mismatch. Please start login again.',
-      });
-    }
-
-    const patreon = getPatreonConfig(env);
-    if (!patreon.configured) {
-      return renderPopupCallbackHtml({
-        ok: false,
-        errorMessage: 'Patreon OAuth is not configured on this server.',
-      });
-    }
-
-    try {
-      const tokenBody = new URLSearchParams({
-        code,
-        grant_type: 'authorization_code',
-        client_id: patreon.clientId,
-        client_secret: patreon.clientSecret,
-        redirect_uri: `${resolveAppBaseUrl(request, env)}/auth/patreon/callback`,
-      });
-
-      const tokenResp = await fetch('https://www.patreon.com/api/oauth2/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: tokenBody.toString(),
-      });
-
-      if (!tokenResp.ok) {
-        return renderPopupCallbackHtml({
-          ok: false,
-          errorMessage: 'Patreon declined the authorization code. Verify your Redirect URI and secrets.',
-        });
-      }
-
-      const tokenJson = (await tokenResp.json()) as { access_token?: string };
-      if (!tokenJson.access_token) {
-        return renderPopupCallbackHtml({
-          ok: false,
-          errorMessage: 'Patreon did not return an access token.',
-        });
-      }
-
-      const { user, entitlement } = await fetchPatreonUserAndMembership(
-        tokenJson.access_token,
-        env
-      );
-      const authCode = await sealPayloadWeb<SealedClaimPayload>(
-        {
-          user,
-          entitlement,
-          providerAccessToken: tokenJson.access_token,
-          isDemo: false,
-        },
-        signingSecret,
-        'auth_claim',
-        600
-      );
-
-      const resp = renderPopupCallbackHtml({ ok: true, provider: 'patreon', authCode });
-      resp.headers.set('Set-Cookie', buildStateCookieHeader(request, '', 0));
-      return resp;
-    } catch (err) {
-      return renderPopupCallbackHtml({
-        ok: false,
-        errorMessage: err instanceof Error ? err.message : 'Patreon verification failed.',
-      });
-    }
-  }
-
-  // 6. Claim Single-Use Auth Code into Bearer Session
-  if (method === 'POST' && pathname === '/api/auth/claim') {
-    const signingSecret = getSigningSecret(env);
-    if (!signingSecret) {
-      return jsonResponse({ error: 'Server signing secret is not configured.' }, 503);
-    }
-
-    const body = await safeParseJsonBody(request);
-    const authCode = typeof body?.authCode === 'string' ? body.authCode.trim() : '';
-    if (!authCode || authCode.length > 8192) {
-      return jsonResponse({ error: 'Missing authCode.' }, 400);
-    }
-
-    const opened = await openPayloadWeb<SealedClaimPayload>(
-      authCode,
-      signingSecret,
-      'auth_claim'
-    );
-    if (!opened.valid) {
-      return jsonResponse({ error: 'Invalid or expired login handoff code.' }, 401);
-    }
-
-    const fresh = await consumeJti(env, 'auth_claim', opened.data.jti, 600);
-    if (!fresh) {
-      return jsonResponse({ error: 'This login handoff code was already claimed.' }, 401);
-    }
-
-    const nowSec = Math.floor(Date.now() / 1000);
-    const sessionExpiresAt = nowSec + SESSION_TTL_SECONDS;
-    const bearerToken = await sealPayloadWeb<SealedSessionPayload>(
-      {
-        user: opened.data.user,
-        entitlement: opened.data.entitlement,
-        providerAccessToken: opened.data.providerAccessToken,
-        isDemo: opened.data.isDemo,
-        sessionExpiresAt,
-      },
-      signingSecret,
-      'session',
-      SESSION_TTL_SECONDS,
-      nowSec
-    );
-
-    return jsonResponse(
-      {
-        bearerToken,
-        user: opened.data.user,
-        entitlement: opened.data.entitlement,
-        isDemo: opened.data.isDemo,
-        expiresAt: new Date(sessionExpiresAt * 1000).toISOString(),
-        expiresInSeconds: SESSION_TTL_SECONDS,
-      },
-      200,
-      {},
-      [buildSessionCookieHeader(request, bearerToken, SESSION_TTL_SECONDS)]
-    );
-  }
-
-  // 7. Developer Email + Password Login (Credentials stored solely in Worker Env/Secrets)
-  if (method === 'POST' && pathname === '/api/auth/developer') {
-    const signingSecret = getSigningSecret(env);
-    if (!signingSecret) {
-      return jsonResponse({ error: 'Server signing secret is not configured.' }, 503);
-    }
-
-    const devConfig = getDeveloperLoginConfig(env);
-    if (!devConfig.configured) {
-      return jsonResponse(
-        { error: 'Developer login is not configured on this server.' },
         503
       );
     }
 
-    const body = await safeParseJsonBody(request);
-    const emailRaw = typeof body?.email === 'string' ? body.email : '';
-    const passwordRaw = typeof body?.password === 'string' ? body.password : '';
-    const normalizedEmail = emailRaw.trim().toLowerCase();
+    const key = clientKey(request);
+    if (isThrottled(key)) {
+      return jsonResponse({ error: 'Too many failed attempts. Try again in a few minutes.' }, 429);
+    }
 
-    if (
-      !normalizedEmail ||
-      !passwordRaw ||
-      normalizedEmail.length > 256 ||
-      passwordRaw.length > 256
-    ) {
+    const body = await readJsonBody(request);
+    const email = (typeof body?.email === 'string' ? body.email : '').trim().toLowerCase();
+    const password = typeof body?.password === 'string' ? body.password : '';
+    if (!email || !password || email.length > 256 || password.length > 256) {
       return jsonResponse({ error: 'Enter your email and password.' }, 400);
     }
 
-    const [emailMatch, passwordMatch] = await Promise.all([
-      constantTimeEqualStringWeb(normalizedEmail, devConfig.email),
-      constantTimeEqualStringWeb(passwordRaw, devConfig.password),
+    const [emailOk, passwordOk] = await Promise.all([
+      constantTimeEqualStringWeb(email, dev.email),
+      constantTimeEqualStringWeb(password, dev.password),
     ]);
-
-    if (!emailMatch || !passwordMatch) {
+    if (!emailOk || !passwordOk) {
+      recordFailure(key);
       return jsonResponse({ error: 'Invalid email or password.' }, 401);
     }
 
-    const user: VerifiedUser = {
-      id: 'dev:dopalone',
-      provider: 'developer',
-      username: 'dopalone',
-      displayName: 'Developer',
-      avatarUrl: null,
-    };
-    const entitlement = buildDeveloperEntitlement(
-      'developer',
-      'Developer account verified (permanent access).'
-    );
-
-    const nowSec = Math.floor(Date.now() / 1000);
-    const sessionExpiresAt = nowSec + SESSION_TTL_SECONDS;
-    const bearerToken = await sealPayloadWeb<SealedSessionPayload>(
-      {
-        user,
-        entitlement,
-        providerAccessToken: null,
-        isDemo: false,
-        sessionExpiresAt,
-      },
-      signingSecret,
-      'session',
-      SESSION_TTL_SECONDS,
-      nowSec
-    );
-
-    return jsonResponse(
-      {
-        bearerToken,
-        user,
-        entitlement,
-        isDemo: false,
-        expiresAt: new Date(sessionExpiresAt * 1000).toISOString(),
-        expiresInSeconds: SESSION_TTL_SECONDS,
-      },
-      200,
-      {},
-      [buildSessionCookieHeader(request, bearerToken, SESSION_TTL_SECONDS)]
-    );
+    loginFailures.delete(key);
+    const token = await sealPayloadWeb({ role: 'developer' }, secret, 'session', SESSION_TTL_SECONDS);
+    return jsonResponse({ ok: true, developer: true }, 200, [
+      buildSessionCookie(request, token, SESSION_TTL_SECONDS),
+    ]);
   }
 
-  // 8. Current Session Info (hydrates in-memory Bearer token from HttpOnly cookie within 24h)
-  if (method === 'GET' && pathname === '/api/auth/session') {
-    const auth = await readAuthenticatedSession(request, env);
-    if (!auth) {
-      const cookies = parseCookies(request.headers.get('cookie'));
-      const hasCookie = Boolean((cookies[SESSION_COOKIE_NAME] || '').trim());
-      const signingSecret = getSigningSecret(env);
-      let reason = 'no_cookie';
-      if (!signingSecret) {
-        reason = 'missing_secret';
-      } else if (hasCookie) {
-        const opened = await openPayloadWeb<SealedSessionPayload>(
-          cookies[SESSION_COOKIE_NAME].trim(),
-          signingSecret,
-          'session'
-        );
-        if (!opened.valid) {
-          reason = opened.error.includes('expired') ? 'expired' : 'invalid_token';
-        } else if (await isJtiConsumed(env, 'revoked_session', opened.data.jti)) {
-          reason = 'revoked';
-        } else {
-          reason = 'expired';
-        }
-      }
-      const clearCookies = hasCookie
-        ? [buildSessionCookieHeader(request, '', 0)]
-        : [];
-      return jsonResponse({ authenticated: false, reason }, 200, {}, clearCookies);
-    }
-    return jsonResponse({
-      authenticated: true,
-      bearerToken: auth.token,
-      user: auth.session.user,
-      entitlement: auth.session.entitlement,
-      isDemo: auth.session.isDemo,
-      expiresAt: new Date(auth.expiresAtSec * 1000).toISOString(),
-      expiresInSeconds: auth.remainingSeconds,
-    });
+  if (method === 'POST' && pathname === '/api/logout') {
+    return jsonResponse({ ok: true }, 200, [buildSessionCookie(request, '', 0)]);
   }
 
-  // 9. Re-check Live Subscription (preserves original 24-hour login expiration)
-  if (method === 'POST' && pathname === '/api/auth/recheck') {
-    const auth = await readAuthenticatedSession(request, env);
-    if (!auth) {
-      return jsonResponse({ error: 'Not signed in.' }, 401);
-    }
+  /* ---- Home page settings ---- */
 
-    const { session, signingSecret, expiresAtSec, remainingSeconds } = auth;
-    let updatedUser = session.user;
-    let updatedEntitlement = session.entitlement;
-
-    if (session.user.provider === 'developer') {
-      updatedEntitlement = buildDeveloperEntitlement(
-        'developer',
-        'Developer account verified (permanent access).'
-      );
-    } else if (session.isDemo) {
-      updatedEntitlement = {
-        ...session.entitlement,
-        checkedAt: new Date().toISOString(),
-      };
-    } else if (!session.providerAccessToken) {
-      const existingLifetime = await loadLifetimeGrant(env, session.user.id);
-      if (existingLifetime) {
-        updatedEntitlement = buildRestoredLifetimeEntitlement(existingLifetime);
-      } else {
-        return jsonResponse(
-          { error: 'OAuth access token missing. Please sign in again.' },
-          401
-        );
-      }
-    } else {
-      try {
-        if (session.user.provider === 'twitch') {
-          const refreshed = await fetchTwitchUserAndSub(session.providerAccessToken, env);
-          updatedUser = refreshed.user;
-          updatedEntitlement = refreshed.entitlement;
-        } else {
-          const refreshed = await fetchPatreonUserAndMembership(session.providerAccessToken, env);
-          updatedUser = refreshed.user;
-          updatedEntitlement = refreshed.entitlement;
-        }
-      } catch (err) {
-        const existingLifetime = await loadLifetimeGrant(env, session.user.id);
-        if (existingLifetime) {
-          updatedEntitlement = buildRestoredLifetimeEntitlement(existingLifetime);
-        } else {
-          return jsonResponse(
-            {
-              error:
-                err instanceof Error
-                  ? err.message
-                  : 'Provider re-check failed. Please sign in again.',
-            },
-            401
-          );
-        }
-      }
-    }
-
-    const refreshedBearer = await sealPayloadWeb<SealedSessionPayload>(
-      {
-        user: updatedUser,
-        entitlement: updatedEntitlement,
-        providerAccessToken: session.providerAccessToken,
-        isDemo: session.isDemo,
-        sessionExpiresAt: expiresAtSec,
-      },
-      signingSecret,
-      'session',
-      remainingSeconds
-    );
-
-    return jsonResponse(
-      {
-        bearerToken: refreshedBearer,
-        user: updatedUser,
-        entitlement: updatedEntitlement,
-        isDemo: session.isDemo,
-        expiresAt: new Date(expiresAtSec * 1000).toISOString(),
-        expiresInSeconds: remainingSeconds,
-      },
-      200,
-      {},
-      [buildSessionCookieHeader(request, refreshedBearer, remainingSeconds)]
-    );
+  if (method === 'GET' && pathname === '/api/site') {
+    return jsonResponse({ site: await loadSite(env), storageReady: Boolean(env.CONTENT_KV) });
   }
 
-  // 10. Sign Out (revokes JTI and clears both OAuth state & 24h session cookies)
-  if (method === 'POST' && pathname === '/api/auth/logout') {
-    const auth = await readAuthenticatedSession(request, env);
-    if (auth) {
-      await consumeJti(env, 'revoked_session', auth.jti, Math.max(60, auth.remainingSeconds));
-    }
-    return jsonResponse(
-      { ok: true },
-      200,
-      {},
-      [
-        buildStateCookieHeader(request, '', 0),
-        buildSessionCookieHeader(request, '', 0),
-      ]
-    );
+  if (method === 'PUT' && pathname === '/api/site') {
+    const denied = await requireDeveloper(request, env);
+    if (denied) return denied;
+    if (!env.CONTENT_KV) return jsonResponse({ error: KV_MISSING_ERROR }, 503);
+
+    const validated = validateSiteInput(await readJsonBody(request), () => `btn-${randomHex(4)}`);
+    if (!validated.ok) return jsonResponse({ error: validated.error }, 400);
+
+    const site: SiteSettings = { ...validated.data, updatedAt: new Date().toISOString() };
+    await env.CONTENT_KV.put(SITE_KV_KEY, JSON.stringify(site));
+    return jsonResponse({ site });
   }
 
-  // 11. Issue Desktop Handoff Code & Signed License (Requires entitlement.active === true)
-  if (method === 'POST' && pathname === '/api/license/issue') {
-    const auth = await readAuthenticatedSession(request, env);
-    if (!auth) {
-      return jsonResponse({ error: 'Sign in first before launching VaalAuras.' }, 401);
-    }
+  /* ---- Changelog ---- */
 
-    const { session, signingSecret } = auth;
-    if (!session.entitlement.active) {
-      return jsonResponse(
-        {
-          error:
-            session.entitlement.reason ||
-            'An active Twitch subscription or $5+ Patreon tier is required.',
-        },
-        403
-      );
-    }
-
-    const codeTtlSeconds = 300;
-    const licenseTtlSeconds = 7 * 24 * 60 * 60;
-    const nowSec = Math.floor(Date.now() / 1000);
-
-    const handoffCode = await sealPayloadWeb<SealedHandoffPayload>(
-      {
-        user: session.user,
-        entitlement: session.entitlement,
-      },
-      signingSecret,
-      'handoff_code',
-      codeTtlSeconds,
-      nowSec
-    );
-
-    const licenseToken = await signLicenseTokenWeb(
-      {
-        sub: session.user.id,
-        provider: session.user.provider,
-        username: session.user.username,
-        tier: session.entitlement.tierLabel,
-        entitled: true,
-      },
-      signingSecret,
-      licenseTtlSeconds,
-      nowSec
-    );
-
-    const scheme = sanitizeProtocolScheme(env.APP_PROTOCOL_SCHEME);
-    const port = sanitizeLocalhostPort(env.APP_LOCALHOST_PORT);
-
-    return jsonResponse({
-      handoffCode,
-      licenseToken,
-      appLaunchUri: buildAppLaunchUrl(scheme, handoffCode),
-      localhostCallbackUrl: buildLocalhostCallbackUrl(port, handoffCode),
-      codeExpiresAt: new Date((nowSec + codeTtlSeconds) * 1000).toISOString(),
-      expiresAt: new Date((nowSec + licenseTtlSeconds) * 1000).toISOString(),
-    });
-  }
-
-  // 12. Python App Exchange Endpoint (Single-Use Code -> Signed License)
-  if (method === 'POST' && pathname === '/api/app/exchange') {
-    const signingSecret = getSigningSecret(env);
-    if (!signingSecret) {
-      return jsonResponse({ valid: false, error: 'Server signing secret is not configured.' }, 503);
-    }
-
-    const body = await safeParseJsonBody(request);
-    const code = typeof body?.code === 'string' ? body.code.trim() : '';
-    if (!code || code.length > 8192) {
-      return jsonResponse({ valid: false, error: 'Missing handoff code.' }, 400);
-    }
-
-    const opened = await openPayloadWeb<SealedHandoffPayload>(
-      code,
-      signingSecret,
-      'handoff_code'
-    );
-    if (!opened.valid) {
-      return jsonResponse({ valid: false, error: 'Invalid or expired handoff code.' }, 400);
-    }
-
-    if (!opened.data.entitlement?.active) {
-      return jsonResponse({ valid: false, error: 'Entitlement is not active.' }, 403);
-    }
-
-    const fresh = await consumeJti(env, 'handoff_code', opened.data.jti, 300);
-    if (!fresh) {
-      return jsonResponse(
-        {
-          valid: false,
-          error: 'This handoff code has already been used. Click Log in on the website to generate a fresh code.',
-        },
-        400
-      );
-    }
-
-    const licenseTtlSeconds = 7 * 24 * 60 * 60;
-    const nowSec = Math.floor(Date.now() / 1000);
-    const licenseToken = await signLicenseTokenWeb(
-      {
-        sub: opened.data.user.id,
-        provider: opened.data.user.provider,
-        username: opened.data.user.username,
-        tier: opened.data.entitlement.tierLabel,
-        entitled: true,
-      },
-      signingSecret,
-      licenseTtlSeconds,
-      nowSec
-    );
-
-    return jsonResponse({
-      valid: true,
-      licenseToken,
-      user: opened.data.user,
-      entitlement: opened.data.entitlement,
-      expiresAt: new Date((nowSec + licenseTtlSeconds) * 1000).toISOString(),
-    });
-  }
-
-  // 13. Python App License Token Verify Endpoint
-  if (method === 'POST' && pathname === '/api/app/verify') {
-    const signingSecret = getSigningSecret(env);
-    if (!signingSecret) {
-      return jsonResponse({ valid: false, error: 'Server signing secret is not configured.' }, 503);
-    }
-
-    const body = await safeParseJsonBody(request);
-    const token = typeof body?.token === 'string' ? body.token.trim() : '';
-    if (!token || token.length > 8192) {
-      return jsonResponse({ valid: false, error: 'Missing token.' }, 400);
-    }
-
-    const result = await verifyLicenseTokenWeb(token, signingSecret);
-    if (!result.valid) {
-      return jsonResponse({ valid: false, error: result.error }, 401);
-    }
-    return jsonResponse({ valid: true, claims: result.claims });
-  }
-
-  // 14. Public Read + Developer CRUD for Changelog Posts
   if (method === 'GET' && pathname === '/api/content/changelogs') {
-    const posts = await loadChangelogPosts(env);
-    return jsonResponse({ posts, storageReady: Boolean(getContentKv(env)) });
+    return jsonResponse({
+      posts: await loadChangelogs(env),
+      storageReady: Boolean(env.CONTENT_KV),
+    });
   }
 
   if (method === 'POST' && pathname === '/api/content/changelogs') {
-    const guard = await requireDeveloperAuth(request, env);
-    if (!guard.ok) return guard.response;
+    const denied = await requireDeveloper(request, env);
+    if (denied) return denied;
+    if (!env.CONTENT_KV) return jsonResponse({ error: KV_MISSING_ERROR }, 503);
 
-    const kv = getContentKv(env);
-    if (!kv) {
-      return jsonResponse(
-        {
-          error:
-            'Cloudflare KV storage is not bound yet. Bind a KV namespace named CONTENT_KV in Cloudflare Worker Settings -> Bindings.',
-        },
-        503
-      );
-    }
+    const validated = validateChangelogInput(await readJsonBody(request));
+    if (!validated.ok) return jsonResponse({ error: validated.error }, 400);
 
-    const validated = validateChangelogInput(await safeParseJsonBody(request));
-    if (!validated.ok) {
-      return jsonResponse({ error: validated.error }, 400);
-    }
-
-    const existing = await loadChangelogPosts(env);
+    const existing = await loadChangelogs(env);
     if (existing.length >= MAX_CONTENT_ITEMS) {
       return jsonResponse({ error: 'Maximum number of changelog posts reached.' }, 400);
     }
 
-    const nowIso = new Date().toISOString();
+    const now = new Date().toISOString();
     const post: ChangelogPost = {
       id: `rel-${randomHex(8)}`,
       ...validated.data,
-      createdAt: nowIso,
-      updatedAt: nowIso,
+      createdAt: now,
+      updatedAt: now,
     };
-    const nextPosts = [post, ...existing];
-    await kv.put(CHANGELOG_KV_KEY, JSON.stringify(nextPosts));
-    return jsonResponse({ post, posts: nextPosts }, 201);
+    const posts = [post, ...existing];
+    await env.CONTENT_KV.put(CHANGELOG_KV_KEY, JSON.stringify(posts));
+    return jsonResponse({ post, posts }, 201);
   }
 
-  const changelogIdMatch = pathname.match(/^\/api\/content\/changelogs\/([a-zA-Z0-9_-]{1,64})$/);
-  if (changelogIdMatch) {
-    const targetId = changelogIdMatch[1];
+  const changelogMatch = pathname.match(/^\/api\/content\/changelogs\/([a-zA-Z0-9_-]{1,64})$/);
+  if (changelogMatch && (method === 'PUT' || method === 'DELETE')) {
+    const denied = await requireDeveloper(request, env);
+    if (denied) return denied;
+    if (!env.CONTENT_KV) return jsonResponse({ error: KV_MISSING_ERROR }, 503);
 
-    if (method === 'PUT') {
-      const guard = await requireDeveloperAuth(request, env);
-      if (!guard.ok) return guard.response;
-
-      const kv = getContentKv(env);
-      if (!kv) {
-        return jsonResponse(
-          {
-            error:
-              'Cloudflare KV storage is not bound yet. Bind a KV namespace named CONTENT_KV in Cloudflare Worker Settings -> Bindings.',
-          },
-          503
-        );
-      }
-
-      const validated = validateChangelogInput(await safeParseJsonBody(request));
-      if (!validated.ok) {
-        return jsonResponse({ error: validated.error }, 400);
-      }
-
-      const existing = await loadChangelogPosts(env);
-      const idx = existing.findIndex((p) => p.id === targetId);
-      if (idx === -1) {
-        return jsonResponse({ error: 'Changelog post not found.' }, 404);
-      }
-
-      const updated: ChangelogPost = {
-        ...existing[idx],
-        ...validated.data,
-        updatedAt: new Date().toISOString(),
-      };
-      const nextPosts = existing.map((p, i) => (i === idx ? updated : p));
-      await kv.put(CHANGELOG_KV_KEY, JSON.stringify(nextPosts));
-      return jsonResponse({ post: updated, posts: nextPosts });
-    }
+    const id = changelogMatch[1];
+    const existing = await loadChangelogs(env);
+    const idx = existing.findIndex((p) => p.id === id);
+    if (idx === -1) return jsonResponse({ error: 'Changelog post not found.' }, 404);
 
     if (method === 'DELETE') {
-      const guard = await requireDeveloperAuth(request, env);
-      if (!guard.ok) return guard.response;
-
-      const kv = getContentKv(env);
-      if (!kv) {
-        return jsonResponse(
-          {
-            error:
-              'Cloudflare KV storage is not bound yet. Bind a KV namespace named CONTENT_KV in Cloudflare Worker Settings -> Bindings.',
-          },
-          503
-        );
-      }
-
-      const existing = await loadChangelogPosts(env);
-      const nextPosts = existing.filter((p) => p.id !== targetId);
-      if (nextPosts.length === existing.length) {
-        return jsonResponse({ error: 'Changelog post not found.' }, 404);
-      }
-
-      await kv.put(CHANGELOG_KV_KEY, JSON.stringify(nextPosts));
-      return jsonResponse({ ok: true, posts: nextPosts });
+      const posts = existing.filter((p) => p.id !== id);
+      await env.CONTENT_KV.put(CHANGELOG_KV_KEY, JSON.stringify(posts));
+      return jsonResponse({ ok: true, posts });
     }
+
+    const validated = validateChangelogInput(await readJsonBody(request));
+    if (!validated.ok) return jsonResponse({ error: validated.error }, 400);
+
+    const post: ChangelogPost = {
+      ...existing[idx],
+      ...validated.data,
+      updatedAt: new Date().toISOString(),
+    };
+    const posts = existing.map((p, i) => (i === idx ? post : p));
+    await env.CONTENT_KV.put(CHANGELOG_KV_KEY, JSON.stringify(posts));
+    return jsonResponse({ post, posts });
   }
 
-  // 15. Public Read + Developer CRUD for Guide Articles
+  /* ---- Guide ---- */
+
   if (method === 'GET' && pathname === '/api/content/guides') {
-    const articles = await loadGuideArticles(env);
-    return jsonResponse({ articles, storageReady: Boolean(getContentKv(env)) });
+    return jsonResponse({
+      articles: await loadGuides(env),
+      storageReady: Boolean(env.CONTENT_KV),
+    });
   }
 
   if (method === 'POST' && pathname === '/api/content/guides') {
-    const guard = await requireDeveloperAuth(request, env);
-    if (!guard.ok) return guard.response;
+    const denied = await requireDeveloper(request, env);
+    if (denied) return denied;
+    if (!env.CONTENT_KV) return jsonResponse({ error: KV_MISSING_ERROR }, 503);
 
-    const kv = getContentKv(env);
-    if (!kv) {
-      return jsonResponse(
-        {
-          error:
-            'Cloudflare KV storage is not bound yet. Bind a KV namespace named CONTENT_KV in Cloudflare Worker Settings -> Bindings.',
-        },
-        503
-      );
-    }
+    const validated = validateGuideInput(await readJsonBody(request));
+    if (!validated.ok) return jsonResponse({ error: validated.error }, 400);
 
-    const validated = validateGuideInput(await safeParseJsonBody(request));
-    if (!validated.ok) {
-      return jsonResponse({ error: validated.error }, 400);
-    }
-
-    const existing = await loadGuideArticles(env);
+    const existing = await loadGuides(env);
     if (existing.length >= MAX_CONTENT_ITEMS) {
       return jsonResponse({ error: 'Maximum number of guide articles reached.' }, 400);
     }
 
-    const nowIso = new Date().toISOString();
+    const now = new Date().toISOString();
     const article: GuideArticle = {
       id: `guide-${randomHex(8)}`,
       slug: `${slugifyTitle(validated.data.title)}-${randomHex(3)}`,
       ...validated.data,
-      createdAt: nowIso,
-      updatedAt: nowIso,
+      createdAt: now,
+      updatedAt: now,
     };
-    const nextArticles = [...existing, article];
-    await kv.put(GUIDE_KV_KEY, JSON.stringify(nextArticles));
-    return jsonResponse({ article, articles: nextArticles }, 201);
+    const articles = [...existing, article];
+    await env.CONTENT_KV.put(GUIDE_KV_KEY, JSON.stringify(articles));
+    return jsonResponse({ article, articles }, 201);
   }
 
-  const guideIdMatch = pathname.match(/^\/api\/content\/guides\/([a-zA-Z0-9_-]{1,64})$/);
-  if (guideIdMatch) {
-    const targetId = guideIdMatch[1];
+  const guideMatch = pathname.match(/^\/api\/content\/guides\/([a-zA-Z0-9_-]{1,64})$/);
+  if (guideMatch && (method === 'PUT' || method === 'DELETE')) {
+    const denied = await requireDeveloper(request, env);
+    if (denied) return denied;
+    if (!env.CONTENT_KV) return jsonResponse({ error: KV_MISSING_ERROR }, 503);
 
-    if (method === 'PUT') {
-      const guard = await requireDeveloperAuth(request, env);
-      if (!guard.ok) return guard.response;
-
-      const kv = getContentKv(env);
-      if (!kv) {
-        return jsonResponse(
-          {
-            error:
-              'Cloudflare KV storage is not bound yet. Bind a KV namespace named CONTENT_KV in Cloudflare Worker Settings -> Bindings.',
-          },
-          503
-        );
-      }
-
-      const validated = validateGuideInput(await safeParseJsonBody(request));
-      if (!validated.ok) {
-        return jsonResponse({ error: validated.error }, 400);
-      }
-
-      const existing = await loadGuideArticles(env);
-      const idx = existing.findIndex((a) => a.id === targetId);
-      if (idx === -1) {
-        return jsonResponse({ error: 'Guide article not found.' }, 404);
-      }
-
-      const updated: GuideArticle = {
-        ...existing[idx],
-        ...validated.data,
-        updatedAt: new Date().toISOString(),
-      };
-      const nextArticles = existing.map((a, i) => (i === idx ? updated : a));
-      await kv.put(GUIDE_KV_KEY, JSON.stringify(nextArticles));
-      return jsonResponse({ article: updated, articles: nextArticles });
-    }
+    const id = guideMatch[1];
+    const existing = await loadGuides(env);
+    const idx = existing.findIndex((a) => a.id === id);
+    if (idx === -1) return jsonResponse({ error: 'Guide article not found.' }, 404);
 
     if (method === 'DELETE') {
-      const guard = await requireDeveloperAuth(request, env);
-      if (!guard.ok) return guard.response;
-
-      const kv = getContentKv(env);
-      if (!kv) {
-        return jsonResponse(
-          {
-            error:
-              'Cloudflare KV storage is not bound yet. Bind a KV namespace named CONTENT_KV in Cloudflare Worker Settings -> Bindings.',
-          },
-          503
-        );
-      }
-
-      const existing = await loadGuideArticles(env);
-      const nextArticles = existing.filter((a) => a.id !== targetId);
-      if (nextArticles.length === existing.length) {
-        return jsonResponse({ error: 'Guide article not found.' }, 404);
-      }
-
-      await kv.put(GUIDE_KV_KEY, JSON.stringify(nextArticles));
-      return jsonResponse({ ok: true, articles: nextArticles });
+      const articles = existing.filter((a) => a.id !== id);
+      await env.CONTENT_KV.put(GUIDE_KV_KEY, JSON.stringify(articles));
+      return jsonResponse({ ok: true, articles });
     }
+
+    const validated = validateGuideInput(await readJsonBody(request));
+    if (!validated.ok) return jsonResponse({ error: validated.error }, 400);
+
+    const article: GuideArticle = {
+      ...existing[idx],
+      ...validated.data,
+      updatedAt: new Date().toISOString(),
+    };
+    const articles = existing.map((a, i) => (i === idx ? article : a));
+    await env.CONTENT_KV.put(GUIDE_KV_KEY, JSON.stringify(articles));
+    return jsonResponse({ article, articles });
   }
 
-  return null;
+  return jsonResponse({ error: 'Not found.' }, 404);
 }
 
 export default {
   async fetch(request: Request, env: WorkerEnv): Promise<Response> {
-    const handled = await handleApiOrAuthRequest(request, env);
-    if (handled) {
-      return handled;
-    }
-
-    if (env.ASSETS) {
-      return env.ASSETS.fetch(request);
-    }
-
+    const handled = await handleApiRequest(request, env);
+    if (handled) return handled;
+    if (env.ASSETS) return env.ASSETS.fetch(request);
     return new Response('Not Found', { status: 404 });
   },
 };

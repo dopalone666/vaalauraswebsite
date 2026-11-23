@@ -1,69 +1,3 @@
-export type AuthProvider = 'twitch' | 'patreon' | 'developer';
-
-export type AccessLevel = 0 | 1 | 2 | 3;
-export type TierKey = 'none' | 'basic_monthly' | 't2_lifetime' | 'pro_lifetime' | 'developer';
-export type BillingType = 'none' | 'monthly' | 'lifetime';
-
-export interface PublicAppConfig {
-  appName: string;
-  creatorDisplayName: string;
-  protocolScheme: string;
-  localhostPort: number;
-  patreonMinTierCents: number;
-  patreonLifetimeT2Cents?: number;
-  patreonLifetimeProCents?: number;
-  twitchConfigured: boolean;
-  patreonConfigured: boolean;
-  twitchCallbackUrl: string;
-  patreonCallbackUrl: string;
-  appBaseUrl: string;
-  twitchChannelUrl: string | null;
-  patreonCreatorUrl: string | null;
-  signingConfigured: boolean;
-  developerLoginConfigured: boolean;
-  kvConfigured: boolean;
-}
-
-export interface EntitlementResult {
-  active: boolean;
-  provider: AuthProvider;
-  tierLabel: string;
-  tierCode: string | null;
-  accessLevel: AccessLevel;
-  tierKey: TierKey;
-  billingType: BillingType;
-  features: string[];
-  amountCents: number | null;
-  isGift: boolean;
-  lifetime?: boolean;
-  grantedAt?: string;
-  reason: string;
-  checkedAt: string;
-}
-
-export interface VerifiedUser {
-  id: string;
-  provider: AuthProvider;
-  username: string;
-  displayName: string;
-  avatarUrl: string | null;
-}
-
-export interface SessionInfo {
-  user: VerifiedUser;
-  entitlement: EntitlementResult;
-  isDemo: boolean;
-}
-
-export interface LicenseHandoffPayload {
-  handoffCode: string;
-  licenseToken: string;
-  appLaunchUri: string;
-  localhostCallbackUrl: string;
-  expiresAt: string;
-  codeExpiresAt: string;
-}
-
 export interface ChangelogPost {
   id: string;
   version: string;
@@ -84,5 +18,30 @@ export interface GuideArticle {
   youtubeUrl: string | null;
   body: string;
   createdAt: string;
+  updatedAt: string;
+}
+
+export type HomeButtonStyle = 'primary' | 'secondary';
+
+export interface HomeButton {
+  id: string;
+  label: string;
+  url: string;
+  style: HomeButtonStyle;
+}
+
+export interface SocialLinks {
+  patreon: string;
+  twitch: string;
+  discord: string;
+}
+
+export interface SiteSettings {
+  title: string;
+  tags: string[];
+  headline: string;
+  subline: string;
+  buttons: HomeButton[];
+  socials: SocialLinks;
   updatedAt: string;
 }
