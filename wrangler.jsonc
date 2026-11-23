@@ -12,7 +12,10 @@
     "CREATOR_DISPLAY_NAME": "VaalAuras",
     "APP_PROTOCOL_SCHEME": "vaalauras",
     "APP_LOCALHOST_PORT": "48912",
+    "PATREON_BASIC_MIN_CENTS": "300",
     "PATREON_MIN_TIER_CENTS": "500",
+    "PATREON_LIFETIME_T2_CENTS": "500",
+    "PATREON_LIFETIME_PRO_CENTS": "1000",
     "DEV_TWITCH_LOGINS": "dopalonee"
   }
   // Required to save user Lifetime Access grants and Guide & Changelog posts permanently on Cloudflare:

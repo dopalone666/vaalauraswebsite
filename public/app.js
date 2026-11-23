@@ -330,9 +330,22 @@
       if (warnNode) {
         warnNode.classList.toggle('hidden', Boolean(cfg.signingConfigured));
       }
-      var minDollars = '$' + (cfg.patreonMinTierCents / 100).toFixed(2);
-      setText('min-tier-copy', minDollars);
-      setText('patreon-tier-note', minDollars + '+ tier');
+      var formatShortDollars = function (cents) {
+        var val = cents / 100;
+        return '$' + (cents % 100 === 0 ? val.toFixed(0) : val.toFixed(2));
+      };
+      var minCents = typeof cfg.patreonMinTierCents === 'number' ? cfg.patreonMinTierCents : 300;
+      var t2Cents = typeof cfg.patreonLifetimeT2Cents === 'number' ? cfg.patreonLifetimeT2Cents : 500;
+      var proCents = typeof cfg.patreonLifetimeProCents === 'number' ? cfg.patreonLifetimeProCents : 1000;
+      setText(
+        'patreon-tier-note',
+        formatShortDollars(minCents) +
+          ' Monthly · ' +
+          formatShortDollars(t2Cents) +
+          '/' +
+          formatShortDollars(proCents) +
+          ' Lifetime'
+      );
     }
 
     if (!signedIn) {
@@ -354,16 +367,14 @@
         el('verified-name').textContent = user.displayName || user.username;
         el('verified-summary').textContent =
           user.provider === 'developer'
-            ? 'Developer · Permanent Access'
+            ? 'Developer · All Features (Lifetime)'
             : providerLabel + ' · ' + ent.tierLabel;
         el('verified-reason').textContent = ent.reason;
         el('verified-checked-at').textContent = checkedLabel;
 
         show(el('access-kv-warning'), Boolean(isDeveloper() && cfg && !cfg.kvConfigured));
-        show(
-          el('btn-recheck-verified'),
-          user.provider !== 'developer' && !ent.lifetime && ent.tierCode !== 'lifetime'
-        );
+        var isMaxLifetime = Boolean(ent.lifetime) && Number(ent.accessLevel || 0) >= 3;
+        show(el('btn-recheck-verified'), user.provider !== 'developer' && !isMaxLifetime);
       } else {
         show(el('state-logged-out'), false);
         show(el('state-verified'), false);

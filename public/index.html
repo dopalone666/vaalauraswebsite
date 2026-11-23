@@ -22,7 +22,7 @@
       href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=20261122-5" />
+    <link rel="stylesheet" href="/styles.css?v=20261122-6" />
   </head>
   <body>
     <header class="topbar">
@@ -121,10 +121,10 @@
               <span class="hud-corner bl" aria-hidden="true"></span>
               <span class="hud-corner br" aria-hidden="true"></span>
 
-              <p class="eyebrow">Lifetime Membership Verification</p>
-              <h1 class="display-title">Unlock VaalAuras Premium</h1>
+              <p class="eyebrow">Membership Verification</p>
+              <h1 class="display-title">Unlock VaalAuras</h1>
               <p class="lead-copy">
-                Sign in with Twitch or Patreon — subscribing once unlocks lifetime access.
+                Twitch T1 or Patreon $3 unlocks monthly access; Twitch T2+ or Patreon $5 / $10 unlocks lifetime features.
               </p>
 
               <div class="provider-stack">
@@ -133,7 +133,7 @@
                     <path d="M4.3 2 2.5 5.4v14.8h5.3V23h3l2.8-2.8h4.2L22 16V2H4.3zm15.9 13.1-2.8 2.8h-4.7l-2.5 2.5v-2.5H5.8V3.9h14.4v11.2zM16.2 7.2h-1.9v5.6h1.9V7.2zm-5 0H9.3v5.6h1.9V7.2z" />
                   </svg>
                   <span>Continue with Twitch</span>
-                  <span class="provider-note">Paid/Prime</span>
+                  <span class="provider-note">T1 Monthly · T2+ Lifetime</span>
                 </button>
 
                 <button type="button" id="btn-patreon-login" class="btn btn-patreon btn-lg">
@@ -141,7 +141,7 @@
                     <path d="M15.386 2.5c-3.816 0-6.92 3.104-6.92 6.92 0 3.803 3.104 6.899 6.92 6.899 3.805 0 6.9-3.096 6.9-6.899 0-3.816-3.095-6.92-6.9-6.92zM2.214 2.5h3.58v19h-3.58z" />
                   </svg>
                   <span>Continue with Patreon</span>
-                  <span id="patreon-tier-note" class="provider-note">$5.00+ tier</span>
+                  <span id="patreon-tier-note" class="provider-note">$3 Monthly · $5/$10 Lifetime</span>
                 </button>
               </div>
 
@@ -212,7 +212,7 @@
               <div id="access-kv-warning" class="alert-banner alert-warn hidden">
                 <strong>Cloudflare KV not bound:</strong> Bind a KV namespace named
                 <code>CONTENT_KV</code> (or <code>AUTH_KV</code>) in Worker Settings &rarr; Bindings
-                so user Lifetime Access unlocks are saved permanently across logins.
+                so user Lifetime Tier 2/$5 &amp; Pro/$10 unlocks are saved permanently across logins.
               </div>
 
               <div class="verdict-box verdict-ok">
@@ -271,7 +271,7 @@
 
               <div class="verdict-box verdict-fail">
                 <p id="denied-reason" class="verdict-text">
-                  No lifetime unlock or active Twitch subscription / $5+ Patreon tier was found.
+                  No lifetime unlock or active Twitch/Patreon subscription was found.
                 </p>
                 <p class="verdict-time">
                   Checked <span id="denied-checked-at" class="mono tabular-nums">—</span>
@@ -295,7 +295,7 @@
                   rel="noopener noreferrer"
                   class="btn btn-patreon btn-sm hidden"
                 >
-                  Join on Patreon ($5+ Tier)
+                  Join on Patreon ($3+ Tier)
                 </a>
               </div>
 
@@ -548,6 +548,6 @@
       </section>
     </main>
 
-    <script src="/app.js?v=20261122-5"></script>
+    <script src="/app.js?v=20261122-6"></script>
   </body>
 </html>

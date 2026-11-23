@@ -26,7 +26,9 @@ VaalAuras — Cloudflare Workers Portal
    - DEV_LOGIN_PASSWORD       (secret password for developer login)
    - DEV_TWITCH_LOGINS        (comma-separated Twitch logins with permanent Developer access)
 
-4. Required to save Lifetime Access unlocks & Guide/Changelog posts permanently:
+4. REQUIRED for Lifetime Tier 2 / $5 / $10 Access & Guide/Changelog persistence:
+   - Twitch Tier 1 and Patreon $3 are Monthly only.
+   - Twitch Tier 2/3, Patreon $5+, and Patreon $10+ save permanent Lifetime records in KV.
    - In Cloudflare Dashboard -> Storage & Databases -> KV -> Create namespace.
    - In your Worker -> Settings -> Bindings -> Add -> KV Namespace -> Variable name: CONTENT_KV.
 

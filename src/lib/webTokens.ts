@@ -129,6 +129,11 @@ export interface LicenseClaims {
   provider: AuthProvider;
   username: string;
   tier: string;
+  accessLevel?: 1 | 2 | 3;
+  tierKey?: 'basic_monthly' | 't2_lifetime' | 'pro_lifetime' | 'developer';
+  billingType?: 'monthly' | 'lifetime';
+  lifetime?: boolean;
+  features?: string[];
   entitled: true;
   jti: string;
   iat: number;
@@ -144,11 +149,29 @@ export async function signLicenseTokenWeb(
   const header = bytesToBase64Url(
     textEncoder.encode(JSON.stringify({ alg: 'HS256', typ: 'SGL1' }))
   );
+  const accessLevel = input.accessLevel ?? 1;
+  const tierKey = input.tierKey ?? 'basic_monthly';
+  const billingType = input.billingType ?? (input.lifetime ? 'lifetime' : 'monthly');
+  const lifetime = typeof input.lifetime === 'boolean' ? input.lifetime : billingType === 'lifetime';
+  const features =
+    Array.isArray(input.features) && input.features.length > 0
+      ? input.features
+      : accessLevel >= 3
+        ? ['basic', 'tier2', 'patreon10']
+        : accessLevel === 2
+          ? ['basic', 'tier2']
+          : ['basic'];
+
   const claims: LicenseClaims = {
     sub: input.sub,
     provider: input.provider,
     username: input.username,
     tier: input.tier,
+    accessLevel,
+    tierKey,
+    billingType,
+    lifetime,
+    features,
     entitled: true,
     jti: input.jti || randomHex(12),
     iat: nowEpochSeconds,

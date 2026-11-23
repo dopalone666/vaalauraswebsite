@@ -1,11 +1,17 @@
 export type AuthProvider = 'twitch' | 'patreon' | 'developer';
 
+export type AccessLevel = 0 | 1 | 2 | 3;
+export type TierKey = 'none' | 'basic_monthly' | 't2_lifetime' | 'pro_lifetime' | 'developer';
+export type BillingType = 'none' | 'monthly' | 'lifetime';
+
 export interface PublicAppConfig {
   appName: string;
   creatorDisplayName: string;
   protocolScheme: string;
   localhostPort: number;
   patreonMinTierCents: number;
+  patreonLifetimeT2Cents?: number;
+  patreonLifetimeProCents?: number;
   twitchConfigured: boolean;
   patreonConfigured: boolean;
   twitchCallbackUrl: string;
@@ -23,6 +29,10 @@ export interface EntitlementResult {
   provider: AuthProvider;
   tierLabel: string;
   tierCode: string | null;
+  accessLevel: AccessLevel;
+  tierKey: TierKey;
+  billingType: BillingType;
+  features: string[];
   amountCents: number | null;
   isGift: boolean;
   lifetime?: boolean;

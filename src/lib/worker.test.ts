@@ -111,12 +111,21 @@ test('Developer email login -> license issue -> app exchange -> app verify grant
   const loginJson = (await loginRes.json()) as {
     bearerToken: string;
     user: { provider: string; displayName: string };
-    entitlement: { active: boolean; tierLabel: string; tierCode: string };
+    entitlement: {
+      active: boolean;
+      tierLabel: string;
+      tierCode: string;
+      accessLevel: number;
+      features: string[];
+      lifetime?: boolean;
+    };
   };
   assert.equal(loginJson.user.provider, 'developer');
   assert.equal(loginJson.entitlement.active, true);
-  assert.equal(loginJson.entitlement.tierLabel, 'Developer');
   assert.equal(loginJson.entitlement.tierCode, 'developer');
+  assert.equal(loginJson.entitlement.accessLevel, 3);
+  assert.equal(loginJson.entitlement.lifetime, true);
+  assert.deepEqual(loginJson.entitlement.features, ['basic', 'tier2', 'patreon10']);
 
   const issueRes = await handleApiOrAuthRequest(
     new Request('https://vaalauras.example.workers.dev/api/license/issue', {
@@ -149,10 +158,15 @@ test('Developer email login -> license issue -> app exchange -> app verify grant
     valid: boolean;
     licenseToken: string;
     entitlement: { active: boolean; tierLabel: string };
+    claims: { accessLevel: number; tierKey: string; billingType: string; lifetime: boolean; features: string[] };
   };
   assert.equal(exchangeJson.valid, true);
   assert.equal(exchangeJson.entitlement.active, true);
-  assert.equal(exchangeJson.entitlement.tierLabel, 'Developer');
+  assert.equal(exchangeJson.claims.accessLevel, 3);
+  assert.equal(exchangeJson.claims.tierKey, 'developer');
+  assert.equal(exchangeJson.claims.billingType, 'lifetime');
+  assert.equal(exchangeJson.claims.lifetime, true);
+  assert.deepEqual(exchangeJson.claims.features, ['basic', 'tier2', 'patreon10']);
 
   const verifyRes = await handleApiOrAuthRequest(
     new Request('https://vaalauras.example.workers.dev/api/app/verify', {
@@ -166,12 +180,21 @@ test('Developer email login -> license issue -> app exchange -> app verify grant
   assert.equal(verifyRes.status, 200);
   const verifyJson = (await verifyRes.json()) as {
     valid: boolean;
-    claims: { provider: string; tier: string; entitled: boolean };
+    claims: {
+      provider: string;
+      tier: string;
+      entitled: boolean;
+      accessLevel: number;
+      features: string[];
+      lifetime: boolean;
+    };
   };
   assert.equal(verifyJson.valid, true);
   assert.equal(verifyJson.claims.provider, 'developer');
-  assert.equal(verifyJson.claims.tier, 'Developer');
   assert.equal(verifyJson.claims.entitled, true);
+  assert.equal(verifyJson.claims.accessLevel, 3);
+  assert.equal(verifyJson.claims.lifetime, true);
+  assert.deepEqual(verifyJson.claims.features, ['basic', 'tier2', 'patreon10']);
 });
 
 test('Twitch OAuth recognizes dopalonee as permanent Developer without requiring a channel subscription', async () => {
@@ -255,7 +278,6 @@ test('Twitch OAuth recognizes dopalonee as permanent Developer without requiring
     assert.equal(claimJson.user.provider, 'twitch');
     assert.equal(claimJson.user.username, 'dopalonee');
     assert.equal(claimJson.entitlement.active, true);
-    assert.equal(claimJson.entitlement.tierLabel, 'Developer');
     assert.equal(claimJson.entitlement.tierCode, 'developer');
   } finally {
     globalThis.fetch = originalFetch;
@@ -686,7 +708,14 @@ test('Expired session (>24h old) is rejected with reason=expired and clears vaal
         active: true,
         provider: 'developer',
         tierCode: 'developer',
-        tierLabel: 'Developer',
+        tierLabel: 'Developer · All Features (Lifetime)',
+        accessLevel: 3,
+        tierKey: 'developer',
+        billingType: 'lifetime',
+        features: ['basic', 'tier2', 'patreon10'],
+        amountCents: null,
+        isGift: false,
+        lifetime: true,
         reason: 'Developer account verified.',
         checkedAt: new Date(pastSec * 1000).toISOString(),
       },
@@ -770,6 +799,13 @@ test('OAuth claim sets compact HttpOnly session cookie (<2KB) and persists acros
         provider: 'patreon',
         tierCode: 'patreon_tier',
         tierLabel: '$5.00 Tier',
+        accessLevel: 2,
+        tierKey: 't2_lifetime',
+        billingType: 'lifetime',
+        features: ['basic', 'tier2'],
+        amountCents: 500,
+        isGift: false,
+        lifetime: true,
         reason: 'Active Patreon tier verified.',
         checkedAt: new Date().toISOString(),
       },
@@ -824,11 +860,12 @@ test('OAuth claim sets compact HttpOnly session cookie (<2KB) and persists acros
   assert.ok(restoredJson.expiresInSeconds > 86300);
 });
 
-test('Twitch subscriber earns lifetime KV access so logging in a month later after expiry keeps access active', async () => {
+test('Twitch Tier 1 is strictly monthly (loses access after expiry), while Tier 2+ grants permanent KV Lifetime access', async () => {
   const kv = createMemoryKv();
   const env = makeBaseEnv({ CONTENT_KV: kv });
   const originalFetch = globalThis.fetch;
-  let twitchSubscribed = true;
+  let currentTwitchUser = { id: '777001', login: 't1_monthly_user', display_name: 'T1Monthly' };
+  let twitchTier: '1000' | '2000' | 'none' = '1000';
 
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
@@ -836,18 +873,13 @@ test('Twitch subscriber earns lifetime KV access so logging in a month later aft
       return new Response(JSON.stringify({ access_token: 'twitch-sub-token' }), { status: 200 });
     }
     if (url.startsWith('https://api.twitch.tv/helix/users')) {
-      return new Response(
-        JSON.stringify({
-          data: [{ id: '777001', login: 'month_one_sub', display_name: 'MonthOneSub' }],
-        }),
-        { status: 200 }
-      );
+      return new Response(JSON.stringify({ data: [currentTwitchUser] }), { status: 200 });
     }
     if (url.startsWith('https://api.twitch.tv/helix/subscriptions/user')) {
-      if (twitchSubscribed) {
+      if (twitchTier === '1000' || twitchTier === '2000') {
         return new Response(
           JSON.stringify({
-            data: [{ broadcaster_id: '99999999', tier: '1000', is_gift: false }],
+            data: [{ broadcaster_id: '99999999', tier: twitchTier, is_gift: false }],
           }),
           { status: 200 }
         );
@@ -857,10 +889,7 @@ test('Twitch subscriber earns lifetime KV access so logging in a month later aft
     throw new Error(`Unexpected fetch URL: ${url}`);
   }) as typeof fetch;
 
-  async function runTwitchOAuthLogin(): Promise<{
-    bearerToken: string;
-    entitlement: { active: boolean; tierLabel: string; tierCode: string | null; lifetime?: boolean };
-  }> {
+  async function runTwitchOAuthLogin() {
     const urlRes = await handleApiOrAuthRequest(
       new Request('https://vaalauras.example.workers.dev/api/auth/twitch/url'),
       env
@@ -887,40 +916,81 @@ test('Twitch subscriber earns lifetime KV access so logging in a month later aft
     assert.equal(claimRes.status, 200);
     return (await claimRes.json()) as {
       bearerToken: string;
-      entitlement: { active: boolean; tierLabel: string; tierCode: string | null; lifetime?: boolean };
+      entitlement: {
+        active: boolean;
+        accessLevel: number;
+        tierKey: string;
+        billingType: string;
+        features: string[];
+        lifetime?: boolean;
+      };
     };
   }
 
   try {
-    // 1. Month 1: user logs in with active sub -> unlocks lifetime access in KV
-    const firstLogin = await runTwitchOAuthLogin();
-    assert.equal(firstLogin.entitlement.active, true);
-    assert.equal(firstLogin.entitlement.lifetime, true);
+    // 1. Twitch Tier 1 user: gets monthly access (Level 1), NO KV record stored
+    const t1Login = await runTwitchOAuthLogin();
+    assert.equal(t1Login.entitlement.active, true);
+    assert.equal(t1Login.entitlement.accessLevel, 1);
+    assert.equal(t1Login.entitlement.tierKey, 'basic_monthly');
+    assert.equal(t1Login.entitlement.billingType, 'monthly');
+    assert.equal(t1Login.entitlement.lifetime, false);
+    assert.deepEqual(t1Login.entitlement.features, ['basic']);
+    assert.equal(await kv.get('lifetime:v1:twitch:777001'), null);
 
-    // 2. Month 2: subscription has lapsed (Twitch returns 404), user logs in fresh
-    twitchSubscribed = false;
-    const secondLogin = await runTwitchOAuthLogin();
-    assert.equal(secondLogin.entitlement.active, true);
-    assert.equal(secondLogin.entitlement.lifetime, true);
-    assert.equal(secondLogin.entitlement.tierCode, 'lifetime');
-    assert.equal(secondLogin.entitlement.tierLabel, 'Lifetime Access');
-
-    // Desktop license handoff works immediately with restored lifetime access
-    const issueRes = await handleApiOrAuthRequest(
+    // Issue + exchange confirms monthly 7d license claims
+    const issueT1 = await handleApiOrAuthRequest(
       new Request('https://vaalauras.example.workers.dev/api/license/issue', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${secondLogin.bearerToken}` },
+        headers: { Authorization: `Bearer ${t1Login.bearerToken}` },
       }),
       env
     );
-    assert.ok(issueRes);
-    assert.equal(issueRes.status, 200);
+    const issueT1Json = (await issueT1!.json()) as { handoffCode: string };
+    const exT1 = await handleApiOrAuthRequest(
+      new Request('https://vaalauras.example.workers.dev/api/app/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: issueT1Json.handoffCode }),
+      }),
+      env
+    );
+    const exT1Json = (await exT1!.json()) as {
+      claims: { accessLevel: number; billingType: string; lifetime: boolean; features: string[] };
+    };
+    assert.equal(exT1Json.claims.accessLevel, 1);
+    assert.equal(exT1Json.claims.billingType, 'monthly');
+    assert.equal(exT1Json.claims.lifetime, false);
+    assert.deepEqual(exT1Json.claims.features, ['basic']);
+
+    // Month 2: Tier 1 sub lapses -> loses access completely
+    twitchTier = 'none';
+    const t1ExpiredLogin = await runTwitchOAuthLogin();
+    assert.equal(t1ExpiredLogin.entitlement.active, false);
+    assert.equal(t1ExpiredLogin.entitlement.accessLevel, 0);
+    assert.deepEqual(t1ExpiredLogin.entitlement.features, []);
+
+    // 2. Twitch Tier 2 user: unlocks Lifetime Level 2 in KV -> keeps access after sub lapses
+    currentTwitchUser = { id: '777002', login: 't2_lifetime_user', display_name: 'T2Lifetime' };
+    twitchTier = '2000';
+    const t2Login = await runTwitchOAuthLogin();
+    assert.equal(t2Login.entitlement.active, true);
+    assert.equal(t2Login.entitlement.accessLevel, 2);
+    assert.equal(t2Login.entitlement.lifetime, true);
+    assert.deepEqual(t2Login.entitlement.features, ['basic', 'tier2']);
+
+    twitchTier = 'none';
+    const t2AfterLapse = await runTwitchOAuthLogin();
+    assert.equal(t2AfterLapse.entitlement.active, true);
+    assert.equal(t2AfterLapse.entitlement.accessLevel, 2);
+    assert.equal(t2AfterLapse.entitlement.lifetime, true);
+    assert.deepEqual(t2AfterLapse.entitlement.features, ['basic', 'tier2']);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test('Patreon $5+ patron retains lifetime KV access after cancelling; non-subscriber stays denied until subscribed', async () => {
+test('Patreon 3-tier lifecycle: $3 monthly lapses on cancel, $5 unlocks Tier 2 lifetime, $10 unlocks Pro lifetime forever', async () => {
   const kv = createMemoryKv();
   const env = makeBaseEnv({
     CONTENT_KV: kv,
@@ -930,8 +1000,9 @@ test('Patreon $5+ patron retains lifetime KV access after cancelling; non-subscr
   });
   const originalFetch = globalThis.fetch;
 
-  let currentPatronId = 'pat-paying-1';
-  let patronState: 'active_5' | 'former_cancelled' | 'never_paid' = 'active_5';
+  let currentPatronId = 'pat-user-3';
+  let patronState: 'active_3' | 'active_5' | 'active_10' | 'former_cancelled' | 'never_paid' =
+    'active_3';
 
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
@@ -939,38 +1010,38 @@ test('Patreon $5+ patron retains lifetime KV access after cancelling; non-subscr
       return new Response(JSON.stringify({ access_token: 'pat-access-token' }), { status: 200 });
     }
     if (url.startsWith('https://www.patreon.com/api/oauth2/v2/identity')) {
-      const included =
-        patronState === 'active_5'
-          ? [
-              {
-                id: 'tier-5',
-                type: 'tier',
-                attributes: { title: 'Vaal Supporter', amount_cents: 500 },
-              },
-              {
-                id: 'mem-1',
-                type: 'member',
-                attributes: {
-                  patron_status: 'active_patron',
-                  currently_entitled_amount_cents: 500,
-                },
-                relationships: {
-                  currently_entitled_tiers: { data: [{ id: 'tier-5', type: 'tier' }] },
-                },
-              },
-            ]
-          : patronState === 'former_cancelled'
-            ? [
-                {
-                  id: 'mem-1',
-                  type: 'member',
-                  attributes: {
-                    patron_status: 'former_patron',
-                    currently_entitled_amount_cents: 0,
-                  },
-                },
-              ]
-            : [];
+      let included: unknown[] = [];
+      if (patronState === 'active_3' || patronState === 'active_5' || patronState === 'active_10') {
+        const cents = patronState === 'active_10' ? 1000 : patronState === 'active_5' ? 500 : 300;
+        const title =
+          patronState === 'active_10' ? 'Pro' : patronState === 'active_5' ? 'Vaal Supporter' : 'Basic';
+        included = [
+          { id: `tier-${cents}`, type: 'tier', attributes: { title, amount_cents: cents } },
+          {
+            id: 'mem-1',
+            type: 'member',
+            attributes: {
+              patron_status: 'active_patron',
+              currently_entitled_amount_cents: cents,
+              last_charge_status: 'Paid',
+            },
+            relationships: {
+              currently_entitled_tiers: { data: [{ id: `tier-${cents}`, type: 'tier' }] },
+            },
+          },
+        ];
+      } else if (patronState === 'former_cancelled') {
+        included = [
+          {
+            id: 'mem-1',
+            type: 'member',
+            attributes: {
+              patron_status: 'former_patron',
+              currently_entitled_amount_cents: 0,
+            },
+          },
+        ];
+      }
       return new Response(
         JSON.stringify({
           data: {
@@ -985,10 +1056,7 @@ test('Patreon $5+ patron retains lifetime KV access after cancelling; non-subscr
     throw new Error(`Unexpected fetch URL: ${url}`);
   }) as typeof fetch;
 
-  async function runPatreonLogin(): Promise<{
-    bearerToken: string;
-    entitlement: { active: boolean; tierLabel: string; tierCode: string | null; lifetime?: boolean };
-  }> {
+  async function runPatreonLogin() {
     const urlRes = await handleApiOrAuthRequest(
       new Request('https://vaalauras.example.workers.dev/api/auth/patreon/url'),
       env
@@ -1015,44 +1083,77 @@ test('Patreon $5+ patron retains lifetime KV access after cancelling; non-subscr
     assert.equal(claimRes.status, 200);
     return (await claimRes.json()) as {
       bearerToken: string;
-      entitlement: { active: boolean; tierLabel: string; tierCode: string | null; lifetime?: boolean };
+      entitlement: {
+        active: boolean;
+        accessLevel: number;
+        tierKey: string;
+        billingType: string;
+        features: string[];
+        lifetime?: boolean;
+      };
     };
   }
 
   try {
-    // Active $5 patron unlocks lifetime KV record
-    const first = await runPatreonLogin();
-    assert.equal(first.entitlement.active, true);
-    assert.equal(first.entitlement.lifetime, true);
+    // 1. $3 monthly patron -> active Level 1 monthly, NO KV record -> loses access when cancelled
+    const p3 = await runPatreonLogin();
+    assert.equal(p3.entitlement.active, true);
+    assert.equal(p3.entitlement.accessLevel, 1);
+    assert.equal(p3.entitlement.lifetime, false);
+    assert.deepEqual(p3.entitlement.features, ['basic']);
+    assert.equal(await kv.get('lifetime:v1:patreon:pat-user-3'), null);
 
-    // Later they cancel (former_patron, 0 cents) -> still granted Lifetime Access from KV
     patronState = 'former_cancelled';
-    const afterCancel = await runPatreonLogin();
-    assert.equal(afterCancel.entitlement.active, true);
-    assert.equal(afterCancel.entitlement.lifetime, true);
-    assert.equal(afterCancel.entitlement.tierLabel, 'Lifetime Access');
+    const p3Cancelled = await runPatreonLogin();
+    assert.equal(p3Cancelled.entitlement.active, false);
+    assert.equal(p3Cancelled.entitlement.accessLevel, 0);
 
-    // Different user who never paid remains denied, then unlocks via Re-check once subscribed
+    // 2. $5 patron unlocks Level 2 Lifetime, keeps it after cancelling, upgrades to $10 Level 3, and keeps Level 3 forever
+    currentPatronId = 'pat-user-5to10';
+    patronState = 'active_5';
+    const p5 = await runPatreonLogin();
+    assert.equal(p5.entitlement.active, true);
+    assert.equal(p5.entitlement.accessLevel, 2);
+    assert.equal(p5.entitlement.lifetime, true);
+    assert.deepEqual(p5.entitlement.features, ['basic', 'tier2']);
+
+    patronState = 'former_cancelled';
+    const p5Cancelled = await runPatreonLogin();
+    assert.equal(p5Cancelled.entitlement.active, true);
+    assert.equal(p5Cancelled.entitlement.accessLevel, 2);
+    assert.deepEqual(p5Cancelled.entitlement.features, ['basic', 'tier2']);
+
+    // Upgrades via re-check to $10 Pro
+    patronState = 'active_10';
+    const recheckPro = await handleApiOrAuthRequest(
+      new Request('https://vaalauras.example.workers.dev/api/auth/recheck', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${p5Cancelled.bearerToken}` },
+      }),
+      env
+    );
+    const recheckProJson = (await recheckPro!.json()) as {
+      entitlement: { active: boolean; accessLevel: number; lifetime: boolean; features: string[] };
+    };
+    assert.equal(recheckProJson.entitlement.active, true);
+    assert.equal(recheckProJson.entitlement.accessLevel, 3);
+    assert.equal(recheckProJson.entitlement.lifetime, true);
+    assert.deepEqual(recheckProJson.entitlement.features, ['basic', 'tier2', 'patreon10']);
+
+    // Cancels $10 pledge next month -> still keeps Level 3 Pro features forever!
+    patronState = 'former_cancelled';
+    const p10Cancelled = await runPatreonLogin();
+    assert.equal(p10Cancelled.entitlement.active, true);
+    assert.equal(p10Cancelled.entitlement.accessLevel, 3);
+    assert.equal(p10Cancelled.entitlement.tierKey, 'pro_lifetime');
+    assert.deepEqual(p10Cancelled.entitlement.features, ['basic', 'tier2', 'patreon10']);
+
+    // Never-paid user stays denied
     currentPatronId = 'pat-free-user';
     patronState = 'never_paid';
     const denied = await runPatreonLogin();
     assert.equal(denied.entitlement.active, false);
-
-    patronState = 'active_5';
-    const recheckRes = await handleApiOrAuthRequest(
-      new Request('https://vaalauras.example.workers.dev/api/auth/recheck', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${denied.bearerToken}` },
-      }),
-      env
-    );
-    assert.ok(recheckRes);
-    assert.equal(recheckRes.status, 200);
-    const recheckJson = (await recheckRes.json()) as {
-      entitlement: { active: boolean; lifetime?: boolean };
-    };
-    assert.equal(recheckJson.entitlement.active, true);
-    assert.equal(recheckJson.entitlement.lifetime, true);
+    assert.equal(denied.entitlement.accessLevel, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
