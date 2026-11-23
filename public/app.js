@@ -336,16 +336,16 @@
       };
       var minCents = typeof cfg.patreonMinTierCents === 'number' ? cfg.patreonMinTierCents : 300;
       var t2Cents = typeof cfg.patreonLifetimeT2Cents === 'number' ? cfg.patreonLifetimeT2Cents : 500;
-      var proCents = typeof cfg.patreonLifetimeProCents === 'number' ? cfg.patreonLifetimeProCents : 1000;
-      setText(
-        'patreon-tier-note',
-        formatShortDollars(minCents) +
-          ' Monthly · ' +
-          formatShortDollars(t2Cents) +
-          '/' +
-          formatShortDollars(proCents) +
-          ' Lifetime'
-      );
+      var patNote = el('patreon-tier-note');
+      if (patNote) {
+        patNote.textContent = '';
+        var line1 = document.createElement('span');
+        line1.textContent = formatShortDollars(minCents) + ' Monthly License';
+        var line2 = document.createElement('span');
+        line2.textContent = formatShortDollars(t2Cents) + '+ Lifetime License';
+        patNote.appendChild(line1);
+        patNote.appendChild(line2);
+      }
     }
 
     if (!signedIn) {

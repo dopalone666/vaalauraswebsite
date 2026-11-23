@@ -363,7 +363,7 @@ textarea:focus-visible {
 
 .btn-lg {
   width: 100%;
-  padding: 13px 18px;
+  padding: 11px 16px;
   font-size: 0.96rem;
   justify-content: space-between;
 }
@@ -467,9 +467,15 @@ textarea:focus-visible {
 }
 
 .provider-note {
-  font-size: 0.8rem;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  font-size: 0.74rem;
   font-weight: 500;
-  opacity: 0.88;
+  line-height: 1.25;
+  gap: 1px;
+  opacity: 0.9;
 }
 
 /* Developer Login */
@@ -1178,6 +1184,16 @@ textarea:focus-visible {
 
   .panel {
     padding: 20px 16px;
+  }
+
+  .btn-lg {
+    padding: 10px 12px;
+    font-size: 0.88rem;
+    gap: 8px;
+  }
+
+  .provider-note {
+    font-size: 0.68rem;
   }
 
   .cl-card-head {
