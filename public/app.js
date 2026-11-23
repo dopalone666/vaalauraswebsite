@@ -340,9 +340,9 @@
       if (patNote) {
         patNote.textContent = '';
         var line1 = document.createElement('span');
-        line1.textContent = formatShortDollars(minCents) + ' Monthly License';
+        line1.textContent = '$3 Monthly License';
         var line2 = document.createElement('span');
-        line2.textContent = formatShortDollars(t2Cents) + '+ Lifetime License';
+        line2.textContent = '$5+ Lifetime License';
         patNote.appendChild(line1);
         patNote.appendChild(line2);
       }
