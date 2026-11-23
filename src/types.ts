@@ -36,36 +36,8 @@ export interface SocialLinks {
   discord: string;
 }
 
-export interface HomeFeature {
-  eyebrow: string;
-  imageUrl: string;
-  title: string;
-  description: string;
-  icon: 'eye' | 'sliders' | 'shield' | 'none' | 'custom';
-  iconUrl: string;
-}
-
-export interface HomeContent {
-  logoUrl: string;
-  wordmarkUrl: string;
-  eyebrow: string;
-  footnote: string;
-  sectionKicker: string;
-  sectionTitle: string;
-  sectionHighlight: string;
-  sectionIntro: string;
-  features: HomeFeature[];
-  ctaKicker: string;
-  ctaTitle: string;
-  ctaHighlight: string;
-  ctaDescription: string;
-  guideLabel: string;
-  changelogLabel: string;
-}
-
 export interface SiteSettings {
   title: string;
-  home: HomeContent;
   tags: string[];
   headline: string;
   subline: string;

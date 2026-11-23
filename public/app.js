@@ -9,7 +9,6 @@
     siteStorageReady: true,
     homeEditorOpen: false,
     homeDraftButtons: [],
-    homeDraftFeatures: [],
 
     // Changelog state
     changelogs: [],
@@ -29,38 +28,8 @@
     guideEditorOpen: false,
   };
 
-  var DEFAULT_HOME = {
-    logoUrl: '/assets/vaalauras_logo.png', wordmarkUrl: '/assets/vaalauras_wordmark.png',
-    eyebrow: 'THE PATH OF EXILE OVERLAY', footnote: 'BUILT FOR YOUR BUILD',
-    sectionKicker: 'THE EXPERIENCE', sectionTitle: 'Every moment', sectionHighlight: 'matters.',
-    sectionIntro: 'Your game deserves an interface that stays out of the way until it matters most. Explore VaalAuras and make your overlay your own.',
-    features: [
-      { eyebrow: 'I / AWARENESS', title: 'See what matters.', description: 'Keep important resources and abilities within sight, without letting the interface take over your screen.', icon: 'eye', iconUrl: '', imageUrl: '' },
-      { eyebrow: 'II / CONTROL', title: 'Make it yours.', description: 'Shape your setup around the way you play. Your screen, your priorities, your experience.', icon: 'sliders', iconUrl: '', imageUrl: '' },
-      { eyebrow: 'III / EVOLUTION', title: 'Always improving.', description: 'Follow the changelog as the project evolves, and find walkthroughs when you need a hand.', icon: 'shield', iconUrl: '', imageUrl: '' }
-    ],
-    ctaKicker: 'YOUR NEXT STEP', ctaTitle: 'Ready to enter', ctaHighlight: 'the fray?',
-    ctaDescription: "Get started with the guide, or see what's changed in the latest updates.",
-    guideLabel: 'Explore the guide', changelogLabel: 'View changelog'
-  };
-  var HOME_FIELDS = {
-    logoUrl: 'home-logo-url', wordmarkUrl: 'home-wordmark-url', eyebrow: 'home-eyebrow',
-    footnote: 'home-footnote', sectionKicker: 'home-section-kicker-input',
-    sectionTitle: 'home-section-title-input', sectionHighlight: 'home-section-highlight-input',
-    sectionIntro: 'home-section-intro-input', ctaKicker: 'home-cta-kicker-input',
-    ctaTitle: 'home-cta-title-input', ctaHighlight: 'home-cta-highlight-input',
-    ctaDescription: 'home-cta-description-input', guideLabel: 'home-guide-label-input',
-    changelogLabel: 'home-changelog-label-input'
-  };
-  var ICON_SVGS = {
-    eye: '<svg viewBox="0 0 48 48" fill="none"><path d="M5 24s7-11 19-11 19 11 19 11-7 11-19 11S5 24 5 24Z"/><circle cx="24" cy="24" r="7"/><circle cx="24" cy="24" r="2" fill="currentColor" stroke="none"/><path d="M24 4v5M24 39v5M4 24h5M39 24h5"/></svg>',
-    sliders: '<svg viewBox="0 0 48 48" fill="none"><path d="M8 12h32M8 24h32M8 36h32"/><circle cx="18" cy="12" r="4" fill="#141011"/><circle cx="32" cy="24" r="4" fill="#141011"/><circle cx="21" cy="36" r="4" fill="#141011"/></svg>',
-    shield: '<svg viewBox="0 0 48 48" fill="none"><path d="M24 4 39 12v17L24 44 9 29V12L24 4Z"/><path d="m16 24 6 6 12-13"/><path d="M24 4v8M9 12l8 5M39 12l-8 5"/></svg>'
-  };
-
   var DEFAULT_SITE = {
     title: 'VaalAuras',
-    home: DEFAULT_HOME,
     tags: [],
     headline: '',
     subline: '',
@@ -114,50 +83,6 @@
 
   function isSafeHref(url) {
     return /^https?:\/\//i.test(url) || (url.charAt(0) === '/' && url.charAt(1) !== '/');
-  }
-
-  function isSafeIconSource(value) {
-    return typeof value === 'string' && (
-      isSafeHref(value) ||
-      /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value)
-    );
-  }
-
-  // Resize uploaded icons in the browser before embedding in admin-protected KV content.
-  // This avoids a separate storage dependency and keeps site settings lightweight.
-  function readUploadedIcon(file) {
-    return new Promise(function (resolve, reject) {
-      if (!file || !/^image\/(?:png|jpeg|webp)$/.test(file.type)) {
-        reject(new Error('Upload a PNG, JPEG or WebP icon.')); return;
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        reject(new Error('Choose an icon smaller than 5 MB.')); return;
-      }
-      var reader = new FileReader();
-      reader.onerror = function () { reject(new Error('Could not read the selected icon.')); };
-      reader.onload = function () {
-        var image = new Image();
-        image.onerror = function () { reject(new Error('Could not decode the selected icon.')); };
-        image.onload = function () {
-          if (!image.naturalWidth || !image.naturalHeight) { reject(new Error('Empty icon image.')); return; }
-          var canvas = document.createElement('canvas');
-          // Preserve aspect ratio; small icons are never scaled up.
-          var scale = Math.min(1, 160 / Math.max(image.naturalWidth, image.naturalHeight));
-          canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-          canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-          var context = canvas.getContext('2d');
-          if (!context) { reject(new Error('Image processing is not supported by this browser.')); return; }
-          context.clearRect(0, 0, canvas.width, canvas.height);
-          context.drawImage(image, 0, 0, canvas.width, canvas.height);
-          var output = canvas.toDataURL('image/webp', 0.86);
-          if (!/^data:image\/webp;base64,/.test(output)) output = canvas.toDataURL('image/png');
-          if (output.length > 140000) { reject(new Error('The icon is too complex. Try a smaller PNG or WebP.')); return; }
-          resolve(output);
-        };
-        image.src = String(reader.result);
-      };
-      reader.readAsDataURL(file);
-    });
   }
 
   async function apiJson(path, options) {
@@ -945,67 +870,7 @@
 
   function renderHome() {
     var site = currentSite();
-    var home = Object.assign({}, DEFAULT_HOME, site.home || {});
-    var heroLogo = el('hero-logo');
-    heroLogo.src = isSafeHref(home.logoUrl) ? home.logoUrl : DEFAULT_HOME.logoUrl;
     var heroWordmark = el('hero-title').querySelector('img');
-    heroWordmark.src = isSafeHref(home.wordmarkUrl) ? home.wordmarkUrl : DEFAULT_HOME.wordmarkUrl;
-    document.querySelectorAll('.brand-logo, .footer-brand img').forEach(function (img) { img.src = heroLogo.src; });
-    document.querySelectorAll('.brand-wordmark-img').forEach(function (img) { img.src = heroWordmark.src; });
-    var mapped = {
-      eyebrow: 'home-hero-eyebrow', footnote: 'home-hero-footnote',
-      sectionKicker: 'home-section-kicker', sectionTitle: 'home-section-title',
-      sectionHighlight: 'home-section-highlight', sectionIntro: 'home-section-intro',
-      ctaKicker: 'home-cta-kicker', ctaTitle: 'home-cta-title',
-      ctaHighlight: 'home-cta-highlight', ctaDescription: 'home-cta-description',
-      guideLabel: 'home-guide-label', changelogLabel: 'home-changelog-label'
-    };
-    Object.keys(mapped).forEach(function (key) { setText(mapped[key], home[key] || ''); });
-    var features = Array.isArray(home.features) ? home.features : DEFAULT_HOME.features;
-    var grid = el('home-feature-grid');
-    grid.replaceChildren();
-    features.forEach(function (feature) {
-      var card = document.createElement('article'); card.className = 'feature-card';
-      var eyebrow = document.createElement('div'); eyebrow.className = 'feature-number'; eyebrow.textContent = feature.eyebrow || '';
-      card.appendChild(eyebrow);
-
-      if (feature.imageUrl && isSafeHref(feature.imageUrl)) {
-        var media = document.createElement('div'); media.className = 'feature-media';
-        var mediaImg = document.createElement('img');
-        mediaImg.className = 'feature-media-img';
-        mediaImg.src = feature.imageUrl;
-        mediaImg.alt = feature.title ? feature.title + ' artwork' : 'Feature artwork';
-        mediaImg.loading = 'lazy';
-        media.appendChild(mediaImg);
-        card.appendChild(media);
-      }
-
-      var lower = document.createElement('div'); lower.className = 'feature-lower';
-      var icon = null;
-      if (feature.icon !== 'none') {
-        if (feature.icon === 'custom') {
-          if (isSafeIconSource(feature.iconUrl)) {
-            icon = document.createElement('div'); icon.className = 'feature-icon feature-icon-custom';
-            var customImg = document.createElement('img'); customImg.src = feature.iconUrl;
-            customImg.alt = ''; customImg.loading = 'lazy'; customImg.decoding = 'async';
-            icon.appendChild(customImg);
-          }
-        } else {
-          icon = document.createElement('div'); icon.className = 'feature-icon'; icon.setAttribute('aria-hidden', 'true');
-          icon.innerHTML = ICON_SVGS[feature.icon] || ICON_SVGS.eye; // Trusted local SVG templates only.
-        }
-      }
-      var textWrap = document.createElement('div'); textWrap.className = 'feature-copy';
-      var heading = document.createElement('h3'); heading.textContent = feature.title || '';
-      var desc = document.createElement('p'); desc.textContent = feature.description || '';
-      textWrap.append(heading, desc);
-      if (icon) lower.append(icon, textWrap);
-      else { lower.classList.add('feature-no-icon'); lower.appendChild(textWrap); }
-      card.appendChild(lower);
-      grid.appendChild(card);
-    });
-    show(el('home-explore-panel'), Boolean(home.ctaKicker || home.ctaTitle || home.ctaHighlight || home.ctaDescription));
-
     if (heroWordmark) heroWordmark.alt = site.title || 'VaalAuras';
     setText('site-footer-text', site.footer || '');
     setText('hero-headline', site.headline || '');
@@ -1140,121 +1005,12 @@
     el('btn-add-home-button').disabled = state.homeDraftButtons.length >= 8;
   }
 
-  function buildHomeField(label, value, max, multiline, onChange) {
-    var wrapper = document.createElement('div'); wrapper.className = 'field-group';
-    var lbl = document.createElement('label'); lbl.className = 'field-label'; lbl.textContent = label;
-    var input = document.createElement(multiline ? 'textarea' : 'input');
-    input.className = 'text-input' + (multiline ? ' textarea-input' : '');
-    input.maxLength = max; input.value = value || '';
-    if (multiline) input.rows = 3;
-    input.addEventListener('input', function () { onChange(input.value); });
-    lbl.appendChild(input); wrapper.appendChild(lbl);
-    return wrapper;
-  }
-
-  function renderFeatureEditor() {
-    var wrap = el('home-feature-editor'); wrap.replaceChildren();
-    state.homeDraftFeatures.forEach(function (f, index) {
-      var card = document.createElement('div'); card.className = 'feature-editor-card';
-      var top = document.createElement('div'); top.className = 'feature-editor-top';
-      var name = document.createElement('strong'); name.textContent = 'Card ' + (index + 1);
-      var actions = document.createElement('div'); actions.className = 'feature-editor-actions';
-      [['↑', -1, 'Move up'], ['↓', 1, 'Move down'], ['×', 0, 'Delete card']].forEach(function (action) {
-        var btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn btn-ghost btn-sm';
-        btn.textContent = action[0]; btn.title = action[2]; btn.setAttribute('aria-label', action[2] + ' ' + (index + 1));
-        btn.disabled = action[1] !== 0 && (index + action[1] < 0 || index + action[1] >= state.homeDraftFeatures.length);
-        btn.addEventListener('click', function () {
-          if (!action[1]) state.homeDraftFeatures.splice(index, 1);
-          else { var swap = index + action[1]; var old = state.homeDraftFeatures[swap]; state.homeDraftFeatures[swap] = f; state.homeDraftFeatures[index] = old; }
-          renderFeatureEditor();
-        }); actions.appendChild(btn);
-      });
-      top.append(name, actions); card.appendChild(top);
-      card.appendChild(buildHomeField('Small caption', f.eyebrow, 60, false, function (v) { f.eyebrow = v; }));
-      card.appendChild(buildHomeField('Image URL (shown under the caption)', f.imageUrl || '', 2048, false, function (v) { f.imageUrl = v; }));
-      card.appendChild(buildHomeField('Title', f.title, 100, false, function (v) { f.title = v; }));
-      card.appendChild(buildHomeField('Description', f.description, 800, true, function (v) { f.description = v; }));
-      var iconGroup = document.createElement('div'); iconGroup.className = 'field-group feature-icon-editor';
-      var iconLabel = document.createElement('label'); iconLabel.className = 'field-label'; iconLabel.textContent = 'Icon';
-      var select = document.createElement('select'); select.className = 'text-input';
-      [['eye', 'Eye / awareness'], ['sliders', 'Controls'], ['shield', 'Shield / evolution'], ['none', 'No icon'], ['custom', 'Custom icon (URL or upload)']].forEach(function (item) {
-        var option = document.createElement('option'); option.value = item[0]; option.textContent = item[1]; option.selected = f.icon === item[0]; select.appendChild(option);
-      });
-      iconLabel.appendChild(select); iconGroup.appendChild(iconLabel);
-
-      var customArea = document.createElement('div'); customArea.className = 'custom-icon-controls';
-      var customLink = document.createElement('label'); customLink.className = 'field-label';
-      customLink.textContent = 'Custom icon URL (or upload a file below)';
-      var iconUrl = document.createElement('input'); iconUrl.type = 'text'; iconUrl.className = 'text-input';
-      iconUrl.placeholder = 'https://... or /assets/icon.png';
-      iconUrl.maxLength = 140000; iconUrl.value = f.iconUrl || '';
-      iconUrl.addEventListener('input', function () { f.iconUrl = iconUrl.value; updatePreview(); });
-      customLink.appendChild(iconUrl); customArea.appendChild(customLink);
-      var uploadRow = document.createElement('div'); uploadRow.className = 'feature-upload-row';
-      var upload = document.createElement('input'); upload.type = 'file';
-      upload.className = 'text-input feature-icon-file'; upload.accept = 'image/png,image/jpeg,image/webp';
-      upload.setAttribute('aria-label', 'Upload icon for feature card ' + (index + 1));
-      var preview = document.createElement('div'); preview.className = 'feature-icon-preview';
-      var status = document.createElement('span'); status.className = 'field-hint';
-      status.textContent = 'PNG, JPG or WebP. Automatically resized to 160px; saved with the page.';
-      function updatePreview() {
-        preview.replaceChildren();
-        if (isSafeIconSource(f.iconUrl)) {
-          var img = document.createElement('img'); img.alt = 'Icon preview'; img.src = f.iconUrl;
-          preview.appendChild(img);
-        } else {
-          preview.textContent = 'No preview';
-        }
-      }
-      upload.addEventListener('change', async function () {
-        if (!upload.files || !upload.files[0]) return;
-        upload.disabled = true; status.textContent = 'Processing icon...';
-        try {
-          f.iconUrl = await readUploadedIcon(upload.files[0]);
-          // Keep the large base64 out of the text input to avoid slow editing and accidental changes.
-          iconUrl.value = '(uploaded image — saved when you save the page)';
-          iconUrl.readOnly = true;
-          status.textContent = 'Icon ready. Save the page to publish it.';
-          updatePreview();
-        } catch (err) { status.textContent = err.message; }
-        finally { upload.disabled = false; upload.value = ''; }
-      });
-      uploadRow.append(upload, preview); customArea.append(uploadRow, status);
-      var clearButton = document.createElement('button'); clearButton.type = 'button';
-      clearButton.className = 'btn btn-ghost btn-sm'; clearButton.textContent = 'Clear custom image';
-      clearButton.addEventListener('click', function () {
-        f.iconUrl = ''; iconUrl.value = ''; iconUrl.readOnly = false;
-        status.textContent = 'Icon cleared. Upload another, paste a URL, or choose No icon.';
-        updatePreview();
-      });
-      customArea.appendChild(clearButton);
-      function updateMode() {
-        f.icon = select.value;
-        show(customArea, select.value === 'custom');
-        if (select.value === 'custom') {
-          iconUrl.readOnly = /^data:image\//.test(f.iconUrl || '');
-          if (iconUrl.readOnly) iconUrl.value = '(uploaded image — saved when you save the page)';
-          else iconUrl.value = f.iconUrl || '';
-          updatePreview();
-        }
-      }
-      select.addEventListener('change', updateMode);
-      updateMode();
-      iconGroup.appendChild(customArea); card.appendChild(iconGroup); wrap.appendChild(card);
-    });
-    el('btn-add-feature').disabled = state.homeDraftFeatures.length >= 8;
-  }
-
   function openHomeEditor() {
     var site = currentSite();
     state.homeEditorOpen = true;
     state.homeDraftButtons = (site.buttons || []).map(function (b) {
       return { id: b.id, label: b.label, url: b.url, style: b.style === 'secondary' ? 'secondary' : 'primary' };
     });
-    var home = Object.assign({}, DEFAULT_HOME, site.home || {});
-    state.homeDraftFeatures = (Array.isArray(home.features) ? home.features : DEFAULT_HOME.features).map(function (f) { return Object.assign({}, f); });
-    Object.keys(HOME_FIELDS).forEach(function (key) { el(HOME_FIELDS[key]).value = home[key] || ''; });
-    renderFeatureEditor();
     el('home-title-input').value = site.title || '';
     el('home-tags-input').value = (site.tags || []).join(', ');
     el('home-headline-input').value = site.headline || '';
@@ -1281,9 +1037,6 @@
     setHomeError('');
     var payload = {
       title: el('home-title-input').value,
-      home: Object.assign(Object.keys(HOME_FIELDS).reduce(function (result, key) {
-        result[key] = el(HOME_FIELDS[key]).value; return result;
-      }, {}), { features: state.homeDraftFeatures }),
       tags: el('home-tags-input').value
         .split(',')
         .map(function (t) { return t.trim(); })
@@ -1451,12 +1204,6 @@
       if (state.homeDraftButtons.length >= 8) return;
       state.homeDraftButtons.push({ id: '', label: 'New button', url: '', style: 'secondary' });
       renderHomeButtonRows();
-    });
-
-    el('btn-add-feature').addEventListener('click', function () {
-      if (state.homeDraftFeatures.length >= 8) return;
-      state.homeDraftFeatures.push({ eyebrow: '', imageUrl: '', title: 'New feature', description: '', icon: 'eye', iconUrl: '' });
-      renderFeatureEditor();
     });
 
     // Guide events
