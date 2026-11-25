@@ -1680,19 +1680,56 @@
       var prefix = cfg[0];
       var arrayKey = cfg[1];
       var legacyKey = cfg[2];
+
+      function switchShowcaseImage(nextSrc, nextIndex, total, delta) {
+        var wrap = el(prefix);
+        var frame = wrap ? wrap.querySelector('.section-showcase') : null;
+        var image = el(prefix + '-image');
+        var counter = el(prefix + '-counter');
+        if (!image || !frame) return;
+
+        var oldOutgoing = frame.querySelectorAll('.showcase-outgoing');
+        for (var i = 0; i < oldOutgoing.length; i += 1) {
+          oldOutgoing[i].remove();
+        }
+
+        var prevSrc = image.getAttribute('src');
+        if (prevSrc && prevSrc !== nextSrc) {
+          var outgoing = document.createElement('img');
+          outgoing.className = 'showcase-outgoing ' + (delta > 0 ? 'showcase-exit-next' : 'showcase-exit-prev');
+          outgoing.alt = '';
+          outgoing.setAttribute('aria-hidden', 'true');
+          outgoing.src = prevSrc;
+          frame.appendChild(outgoing);
+          var cleanup = function () {
+            if (outgoing.parentNode) outgoing.parentNode.removeChild(outgoing);
+          };
+          outgoing.addEventListener('animationend', cleanup, { once: true });
+          setTimeout(cleanup, 420);
+        }
+
+        image.classList.remove('showcase-enter-next', 'showcase-enter-prev');
+        void image.offsetWidth;
+        image.src = nextSrc;
+        image.classList.add(delta > 0 ? 'showcase-enter-next' : 'showcase-enter-prev');
+        if (counter) counter.textContent = (nextIndex + 1) + ' / ' + total;
+      }
+
       function step(delta) {
         var home = Object.assign({}, DEFAULT_HOME, currentSite().home || {});
         var images = getShowcaseImages(home, arrayKey, legacyKey);
         if (images.length <= 1) return;
         var current = state.showcaseIndices[arrayKey] || 0;
-        state.showcaseIndices[arrayKey] = (current + delta + images.length) % images.length;
-        renderHome();
+        var nextIndex = (current + delta + images.length) % images.length;
+        state.showcaseIndices[arrayKey] = nextIndex;
+        switchShowcaseImage(images[nextIndex], nextIndex, images.length, delta);
       }
+
       el(prefix + '-prev').addEventListener('click', function () { step(-1); });
       el(prefix + '-next').addEventListener('click', function () { step(1); });
       el(prefix).addEventListener('keydown', function (e) {
-        if (e.key === 'ArrowUp') { e.preventDefault(); step(-1); }
-        else if (e.key === 'ArrowDown') { e.preventDefault(); step(1); }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); step(-1); }
+        else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); step(1); }
       });
     });
 
