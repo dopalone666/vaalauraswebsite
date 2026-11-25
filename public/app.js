@@ -1139,9 +1139,11 @@
       var wrap = el(entry[2]);
       var image = el(entry[2] + '-image');
       var nav = el(entry[2] + '-nav');
+      var dots = el(entry[2] + '-dots');
       var counter = el(entry[2] + '-counter');
       if (images.length === 0) {
         image.removeAttribute('src');
+        if (dots) dots.replaceChildren();
         show(wrap, false);
         show(nav, false);
         return;
@@ -1149,7 +1151,28 @@
       var idx = state.showcaseIndices[entry[0]] || 0;
       if (idx < 0 || idx >= images.length) idx = 0;
       state.showcaseIndices[entry[0]] = idx;
-      image.src = images[idx];
+      if (image.getAttribute('src') !== images[idx]) {
+        image.src = images[idx];
+      }
+      images.forEach(function (src) {
+        var pre = new Image();
+        pre.decoding = 'async';
+        pre.src = src;
+      });
+      if (dots) {
+        dots.replaceChildren();
+        if (images.length > 1) {
+          images.forEach(function (_src, dotIndex) {
+            var dot = document.createElement('button');
+            dot.type = 'button';
+            dot.className = 'showcase-dot' + (dotIndex === idx ? ' is-active' : '');
+            dot.setAttribute('aria-label', 'Show screenshot ' + (dotIndex + 1));
+            dot.setAttribute('aria-pressed', dotIndex === idx ? 'true' : 'false');
+            dot.dataset.index = String(dotIndex);
+            dots.appendChild(dot);
+          });
+        }
+      }
       wrap.classList.toggle('is-single', images.length <= 1);
       show(wrap, true);
       show(nav, images.length > 1);
@@ -1680,17 +1703,47 @@
       var prefix = cfg[0];
       var arrayKey = cfg[1];
       var legacyKey = cfg[2];
+      var switchToken = 0;
+      var heightTimer = 0;
+      var sheenTimer = 0;
 
-      function switchShowcaseImage(nextSrc, nextIndex, total, delta) {
+      function updateDotsAndCounter(nextIndex, total) {
+        var counter = el(prefix + '-counter');
+        var dots = el(prefix + '-dots');
+        if (counter) counter.textContent = (nextIndex + 1) + ' / ' + total;
+        if (dots) {
+          var btns = dots.querySelectorAll('.showcase-dot');
+          for (var i = 0; i < btns.length; i += 1) {
+            var active = i === nextIndex;
+            btns[i].classList.toggle('is-active', active);
+            btns[i].setAttribute('aria-pressed', active ? 'true' : 'false');
+          }
+        }
+      }
+
+      function runSlideAnimation(nextSrc, delta, naturalWidth, naturalHeight) {
         var wrap = el(prefix);
         var frame = wrap ? wrap.querySelector('.section-showcase') : null;
         var image = el(prefix + '-image');
-        var counter = el(prefix + '-counter');
         if (!image || !frame) return;
 
         var oldOutgoing = frame.querySelectorAll('.showcase-outgoing');
         for (var i = 0; i < oldOutgoing.length; i += 1) {
           oldOutgoing[i].remove();
+        }
+
+        var currentHeight = frame.getBoundingClientRect().height;
+        var targetHeight = (naturalWidth > 0 && naturalHeight > 0 && frame.clientWidth > 0)
+          ? Math.round(frame.clientWidth * (naturalHeight / naturalWidth))
+          : 0;
+        if (currentHeight > 0 && targetHeight > 0 && Math.abs(targetHeight - currentHeight) > 2) {
+          clearTimeout(heightTimer);
+          frame.style.height = Math.round(currentHeight) + 'px';
+          void frame.offsetHeight;
+          frame.style.height = targetHeight + 'px';
+          heightTimer = setTimeout(function () {
+            frame.style.height = '';
+          }, 520);
         }
 
         var prevSrc = image.getAttribute('src');
@@ -1705,32 +1758,109 @@
             if (outgoing.parentNode) outgoing.parentNode.removeChild(outgoing);
           };
           outgoing.addEventListener('animationend', cleanup, { once: true });
-          setTimeout(cleanup, 420);
+          setTimeout(cleanup, 620);
         }
 
         image.classList.remove('showcase-enter-next', 'showcase-enter-prev');
+        frame.classList.remove('is-switching-next', 'is-switching-prev');
         void image.offsetWidth;
         image.src = nextSrc;
         image.classList.add(delta > 0 ? 'showcase-enter-next' : 'showcase-enter-prev');
-        if (counter) counter.textContent = (nextIndex + 1) + ' / ' + total;
+        frame.classList.add(delta > 0 ? 'is-switching-next' : 'is-switching-prev');
+        clearTimeout(sheenTimer);
+        sheenTimer = setTimeout(function () {
+          frame.classList.remove('is-switching-next', 'is-switching-prev');
+        }, 640);
       }
 
-      function step(delta) {
+      function switchShowcaseImage(nextSrc, nextIndex, total, delta) {
+        updateDotsAndCounter(nextIndex, total);
+        var myToken = ++switchToken;
+        var loader = new Image();
+        loader.decoding = 'async';
+        var done = false;
+        function finish() {
+          if (done || myToken !== switchToken) return;
+          done = true;
+          requestAnimationFrame(function () {
+            if (myToken !== switchToken) return;
+            runSlideAnimation(nextSrc, delta, loader.naturalWidth || 0, loader.naturalHeight || 0);
+          });
+        }
+        loader.onload = function () {
+          if (typeof loader.decode === 'function') {
+            loader.decode().then(finish, finish);
+          } else {
+            finish();
+          }
+        };
+        loader.onerror = finish;
+        loader.src = nextSrc;
+        if (loader.complete && loader.naturalWidth > 0) {
+          if (typeof loader.decode === 'function') {
+            loader.decode().then(finish, finish);
+          } else {
+            finish();
+          }
+        }
+      }
+
+      function goToIndex(targetIndex, delta) {
         var home = Object.assign({}, DEFAULT_HOME, currentSite().home || {});
         var images = getShowcaseImages(home, arrayKey, legacyKey);
         if (images.length <= 1) return;
+        var nextIndex = ((targetIndex % images.length) + images.length) % images.length;
         var current = state.showcaseIndices[arrayKey] || 0;
-        var nextIndex = (current + delta + images.length) % images.length;
+        if (nextIndex === current) return;
         state.showcaseIndices[arrayKey] = nextIndex;
         switchShowcaseImage(images[nextIndex], nextIndex, images.length, delta);
       }
 
+      function step(delta) {
+        var current = state.showcaseIndices[arrayKey] || 0;
+        goToIndex(current + delta, delta);
+      }
+
       el(prefix + '-prev').addEventListener('click', function () { step(-1); });
       el(prefix + '-next').addEventListener('click', function () { step(1); });
+      var dotsEl = el(prefix + '-dots');
+      if (dotsEl) {
+        dotsEl.addEventListener('click', function (e) {
+          var btn = e.target && e.target.closest ? e.target.closest('.showcase-dot') : null;
+          if (!btn) return;
+          var idx = parseInt(btn.dataset.index || '', 10);
+          if (isNaN(idx)) return;
+          var current = state.showcaseIndices[arrayKey] || 0;
+          if (idx === current) return;
+          goToIndex(idx, idx > current ? 1 : -1);
+        });
+      }
       el(prefix).addEventListener('keydown', function (e) {
         if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); step(-1); }
         else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); step(1); }
       });
+      var swipeStartX = 0;
+      var swipeStartY = 0;
+      var swipeActive = false;
+      var frameEl = el(prefix).querySelector('.section-showcase');
+      if (frameEl) {
+        frameEl.addEventListener('pointerdown', function (e) {
+          if (e.button && e.button !== 0) return;
+          swipeStartX = e.clientX;
+          swipeStartY = e.clientY;
+          swipeActive = true;
+        });
+        frameEl.addEventListener('pointerup', function (e) {
+          if (!swipeActive) return;
+          swipeActive = false;
+          var dx = e.clientX - swipeStartX;
+          var dy = e.clientY - swipeStartY;
+          if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+            step(dx < 0 ? 1 : -1);
+          }
+        });
+        frameEl.addEventListener('pointercancel', function () { swipeActive = false; });
+      }
     });
 
     // Guide events
