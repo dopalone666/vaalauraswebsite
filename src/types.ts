@@ -51,7 +51,9 @@ export interface HomeContent {
   eyebrow: string;
   footnote: string;
   heroImageUrl: string;
+  heroImages: string[];
   featureSectionImageUrl: string;
+  featureSectionImages: string[];
   sectionKicker: string;
   sectionTitle: string;
   sectionHighlight: string;

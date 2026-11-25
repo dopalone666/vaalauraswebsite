@@ -12,7 +12,9 @@ export const DEFAULT_HOME: HomeContent = {
   eyebrow: 'THE PATH OF EXILE OVERLAY',
   footnote: 'BUILT FOR YOUR BUILD',
   heroImageUrl: '',
+  heroImages: [],
   featureSectionImageUrl: '',
+  featureSectionImages: [],
   sectionKicker: 'THE EXPERIENCE',
   sectionTitle: 'Every moment',
   sectionHighlight: 'matters.',
@@ -43,6 +45,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
 };
 
 export const MAX_HOME_BUTTONS = 8;
+export const MAX_SECTION_IMAGES = 12;
 
 /** Accepts absolute http(s) URLs or site-relative paths ("/files/app.zip"). Returns normalized string or null. */
 export function normalizeLinkUrl(raw: unknown): string | null {
@@ -62,6 +65,15 @@ function cleanText(raw: unknown, max: number): string {
   return typeof raw === 'string' ? raw.trim().slice(0, max) : '';
 }
 
+function normalizeSectionImage(raw: unknown): string | null {
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (!value) return '';
+  if (/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value) && value.length <= 750000) {
+    return value;
+  }
+  return normalizeLinkUrl(value);
+}
+
 export function validateSiteInput(
   raw: Record<string, unknown> | null,
   makeId: () => string
@@ -78,7 +90,15 @@ export function validateSiteInput(
     ? raw.home as Record<string, unknown> : {};
   const home = { ...DEFAULT_HOME };
   for (const key of Object.keys(DEFAULT_HOME) as Array<keyof HomeContent>) {
-    if (key === 'features' || key === 'logoUrl' || key === 'wordmarkUrl' || key === 'heroImageUrl' || key === 'featureSectionImageUrl') continue;
+    if (
+      key === 'features' ||
+      key === 'logoUrl' ||
+      key === 'wordmarkUrl' ||
+      key === 'heroImageUrl' ||
+      key === 'heroImages' ||
+      key === 'featureSectionImageUrl' ||
+      key === 'featureSectionImages'
+    ) continue;
     (home as unknown as Record<string, unknown>)[key] = rawHome[key] === undefined ? DEFAULT_HOME[key] : cleanText(rawHome[key], key === 'sectionIntro' || key === 'ctaDescription' ? 800 : 180);
   }
   for (const key of ['logoUrl', 'wordmarkUrl'] as const) {
@@ -87,16 +107,28 @@ export function validateSiteInput(
     if (value && !normalized) return { ok: false, error: `Invalid ${key} image URL.` };
     home[key] = normalized || DEFAULT_HOME[key];
   }
-  for (const key of ['heroImageUrl', 'featureSectionImageUrl'] as const) {
-    const value = typeof rawHome[key] === 'string' ? rawHome[key].trim() : '';
-    if (!value) { home[key] = ''; continue; }
-    if (/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value) && value.length <= 750000) {
-      home[key] = value;
-      continue;
+  for (const [singleKey, arrayKey] of [
+    ['heroImageUrl', 'heroImages'],
+    ['featureSectionImageUrl', 'featureSectionImages'],
+  ] as const) {
+    const rawList = Array.isArray(rawHome[arrayKey])
+      ? rawHome[arrayKey]
+      : typeof rawHome[singleKey] === 'string' && rawHome[singleKey].trim()
+        ? [rawHome[singleKey]]
+        : [];
+    if (rawList.length > MAX_SECTION_IMAGES) {
+      return { ok: false, error: `Maximum ${MAX_SECTION_IMAGES} screenshots per section.` };
     }
-    const normalized = normalizeLinkUrl(value);
-    if (!normalized) return { ok: false, error: `Invalid ${key}. Use an image URL or upload a PNG, JPG, or WebP.` };
-    home[key] = normalized;
+    const validatedImages: string[] = [];
+    for (const item of rawList) {
+      const normalized = normalizeSectionImage(item);
+      if (normalized === null) {
+        return { ok: false, error: `Invalid ${arrayKey}. Use an image URL or upload a PNG, JPG, or WebP.` };
+      }
+      if (normalized) validatedImages.push(normalized);
+    }
+    home[arrayKey] = validatedImages;
+    home[singleKey] = validatedImages[0] || '';
   }
   const features: HomeFeature[] = [];
   const rawFeatures = Array.isArray(rawHome.features) ? rawHome.features : DEFAULT_HOME.features;

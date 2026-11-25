@@ -76,4 +76,22 @@ test('home sections, feature order and image links are validated', () => {
   assert.equal(bad.ok, false);
   const tooMany = validateSiteInput({ title: 'VaalAuras', home: { features: Array(9).fill({ title: 'Card' }) } }, id);
   assert.equal(tooMany.ok, false);
+
+  const multi = validateSiteInput(
+    {
+      title: 'VaalAuras',
+      home: {
+        heroImages: ['https://example.com/1.png', '/assets/2.png'],
+        featureSectionImageUrl: 'https://example.com/legacy.png',
+      },
+    },
+    id
+  );
+  assert.equal(multi.ok, true);
+  if (multi.ok) {
+    assert.deepEqual(multi.data.home.heroImages, ['https://example.com/1.png', '/assets/2.png']);
+    assert.equal(multi.data.home.heroImageUrl, 'https://example.com/1.png');
+    assert.deepEqual(multi.data.home.featureSectionImages, ['https://example.com/legacy.png']);
+    assert.equal(multi.data.home.featureSectionImageUrl, 'https://example.com/legacy.png');
+  }
 });

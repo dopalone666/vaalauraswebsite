@@ -10,7 +10,8 @@
     homeEditorOpen: false,
     homeDraftButtons: [],
     homeDraftFeatures: [],
-    homeDraftImages: { heroImageUrl: '', featureSectionImageUrl: '' },
+    homeDraftImages: { heroImages: [], featureSectionImages: [] },
+    showcaseIndices: { heroImages: 0, featureSectionImages: 0 },
 
     // Changelog state
     changelogs: [],
@@ -33,7 +34,7 @@
   var DEFAULT_HOME = {
     logoUrl: '/assets/vaalauras_logo.png', wordmarkUrl: '/assets/vaalauras_wordmark.png',
     eyebrow: 'THE PATH OF EXILE OVERLAY', footnote: 'BUILT FOR YOUR BUILD',
-    heroImageUrl: '', featureSectionImageUrl: '',
+    heroImageUrl: '', heroImages: [], featureSectionImageUrl: '', featureSectionImages: [],
     sectionKicker: 'THE EXPERIENCE', sectionTitle: 'Every moment', sectionHighlight: 'matters.',
     sectionIntro: 'Your game deserves an interface that stays out of the way until it matters most. Explore VaalAuras and make your overlay your own.',
     features: [
@@ -46,7 +47,7 @@
     guideLabel: 'Explore the guide', changelogLabel: 'View changelog'
   };
   var HOME_FIELDS = {
-    logoUrl: 'home-logo-url', wordmarkUrl: 'home-wordmark-url', eyebrow: 'home-eyebrow',
+    logoUrl: 'home-logo-url', wordmarkUrl: 'home-wordmark-url',
     footnote: 'home-footnote', sectionKicker: 'home-section-kicker-input',
     sectionTitle: 'home-section-title-input', sectionHighlight: 'home-section-highlight-input',
     sectionIntro: 'home-section-intro-input', ctaKicker: 'home-cta-kicker-input',
@@ -200,43 +201,134 @@
     });
   }
 
+  function getShowcaseImages(home, arrayKey, legacyKey) {
+    var raw = Array.isArray(home[arrayKey]) && home[arrayKey].length > 0
+      ? home[arrayKey]
+      : (home[legacyKey] ? [home[legacyKey]] : []);
+    return raw.filter(isSafeIconSource);
+  }
+
   function initializeSectionImageEditor(prefix, key) {
     var input = el(prefix + '-url');
+    var addBtn = el(prefix + '-add');
     var file = el(prefix + '-upload');
     var clear = el(prefix + '-clear');
-    var preview = el(prefix + '-preview');
+    var listEl = el(prefix + '-list');
     var status = el(prefix + '-status');
+
     function refresh() {
-      var value = state.homeDraftImages[key] || '';
-      var embedded = /^data:image\//.test(value);
-      input.readOnly = embedded;
-      input.value = embedded ? '(uploaded image — saved with page)' : value;
-      if (isSafeIconSource(value)) preview.src = value;
-      else preview.removeAttribute('src');
-      show(preview, isSafeIconSource(value));
+      var list = Array.isArray(state.homeDraftImages[key]) ? state.homeDraftImages[key] : [];
+      listEl.replaceChildren();
+      list.forEach(function (src, idx) {
+        var row = document.createElement('div');
+        row.className = 'section-media-item';
+
+        var thumb = document.createElement('img');
+        thumb.alt = 'Screenshot ' + (idx + 1);
+        if (isSafeIconSource(src)) thumb.src = src;
+
+        var label = document.createElement('span');
+        label.className = 'section-media-item-label';
+        label.textContent = /^data:image\//.test(src)
+          ? 'Screenshot ' + (idx + 1) + ' (uploaded image)'
+          : src;
+
+        var actions = document.createElement('div');
+        actions.className = 'section-media-item-actions';
+
+        function mkBtn(text, title, handler, disabled) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'btn btn-ghost btn-sm';
+          b.textContent = text;
+          b.title = title;
+          b.disabled = Boolean(disabled);
+          b.addEventListener('click', handler);
+          actions.appendChild(b);
+        }
+
+        mkBtn('\u2191', 'Move up', function () {
+          var t = list[idx - 1];
+          list[idx - 1] = list[idx];
+          list[idx] = t;
+          refresh();
+        }, idx === 0);
+
+        mkBtn('\u2193', 'Move down', function () {
+          var t = list[idx + 1];
+          list[idx + 1] = list[idx];
+          list[idx] = t;
+          refresh();
+        }, idx === list.length - 1);
+
+        mkBtn('\u00d7', 'Remove screenshot', function () {
+          list.splice(idx, 1);
+          status.textContent = 'Screenshot removed. Save changes to publish.';
+          refresh();
+        }, false);
+
+        row.append(thumb, label, actions);
+        listEl.appendChild(row);
+      });
+      var full = list.length >= 12;
+      addBtn.disabled = full;
+      file.disabled = full;
     }
-    input.addEventListener('input', function () {
-      if (!input.readOnly) {
-        state.homeDraftImages[key] = input.value;
-        refresh();
+
+    addBtn.addEventListener('click', function () {
+      var list = state.homeDraftImages[key];
+      if (list.length >= 12) {
+        status.textContent = 'Maximum 12 screenshots per section.';
+        return;
       }
-    });
-    file.addEventListener('change', async function () {
-      if (!file.files || !file.files[0]) return;
-      file.disabled = true;
-      status.textContent = 'Preparing image...';
-      try {
-        state.homeDraftImages[key] = await readUploadedSectionImage(file.files[0]);
-        status.textContent = 'Image ready. Save changes to publish.';
-        refresh();
-      } catch (err) { status.textContent = err.message; }
-      finally { file.disabled = false; file.value = ''; }
-    });
-    clear.addEventListener('click', function () {
-      state.homeDraftImages[key] = '';
-      status.textContent = 'Image removed. Save changes to publish.';
+      var value = (input.value || '').trim();
+      if (!value) return;
+      if (!isSafeHref(value)) {
+        status.textContent = 'Enter a valid https:// URL or /assets/... path.';
+        return;
+      }
+      list.push(value);
+      input.value = '';
+      status.textContent = 'Screenshot added. Save changes to publish.';
       refresh();
     });
+
+    file.addEventListener('change', async function () {
+      if (!file.files || file.files.length === 0) return;
+      var list = state.homeDraftImages[key];
+      var remaining = 12 - list.length;
+      if (remaining <= 0) {
+        status.textContent = 'Maximum 12 screenshots per section.';
+        file.value = '';
+        return;
+      }
+      file.disabled = true;
+      addBtn.disabled = true;
+      var selected = Array.prototype.slice.call(file.files, 0, remaining);
+      status.textContent = 'Preparing ' + selected.length + ' screenshot' + (selected.length > 1 ? 's' : '') + '...';
+      try {
+        for (var i = 0; i < selected.length; i += 1) {
+          var encoded = await readUploadedSectionImage(selected[i]);
+          list.push(encoded);
+        }
+        status.textContent = selected.length + ' screenshot' + (selected.length > 1 ? 's' : '') + ' added. Save changes to publish.';
+        refresh();
+      } catch (err) {
+        status.textContent = err.message;
+      } finally {
+        file.disabled = list.length >= 12;
+        addBtn.disabled = list.length >= 12;
+        file.value = '';
+      }
+    });
+
+    clear.addEventListener('click', function () {
+      state.homeDraftImages[key] = [];
+      input.value = '';
+      status.textContent = 'All screenshots removed. Save changes to publish.';
+      refresh();
+    });
+
     return refresh;
   }
 
@@ -1033,7 +1125,7 @@
     document.querySelectorAll('.brand-logo, .footer-brand img').forEach(function (img) { img.src = heroLogo.src; });
     document.querySelectorAll('.brand-wordmark-img').forEach(function (img) { img.src = heroWordmark.src; });
     var mapped = {
-      eyebrow: 'home-hero-eyebrow', footnote: 'home-hero-footnote',
+      footnote: 'home-hero-footnote',
       sectionKicker: 'home-section-kicker', sectionTitle: 'home-section-title',
       sectionHighlight: 'home-section-highlight', sectionIntro: 'home-section-intro',
       ctaKicker: 'home-cta-kicker', ctaTitle: 'home-cta-title',
@@ -1041,14 +1133,27 @@
       guideLabel: 'home-guide-label', changelogLabel: 'home-changelog-label'
     };
     Object.keys(mapped).forEach(function (key) { setText(mapped[key], home[key] || ''); });
-    [['heroImageUrl', 'home-hero-media', 'home-hero-media-image'],
-     ['featureSectionImageUrl', 'home-feature-media', 'home-feature-media-image']].forEach(function (entry) {
-      var source = home[entry[0]] || '';
-      var visible = isSafeIconSource(source);
-      var image = el(entry[2]);
-      if (visible) image.src = source;
-      else image.removeAttribute('src');
-      show(el(entry[1]), visible);
+    [['heroImages', 'heroImageUrl', 'home-hero-media'],
+     ['featureSectionImages', 'featureSectionImageUrl', 'home-feature-media']].forEach(function (entry) {
+      var images = getShowcaseImages(home, entry[0], entry[1]);
+      var wrap = el(entry[2]);
+      var image = el(entry[2] + '-image');
+      var nav = el(entry[2] + '-nav');
+      var counter = el(entry[2] + '-counter');
+      if (images.length === 0) {
+        image.removeAttribute('src');
+        show(wrap, false);
+        show(nav, false);
+        return;
+      }
+      var idx = state.showcaseIndices[entry[0]] || 0;
+      if (idx < 0 || idx >= images.length) idx = 0;
+      state.showcaseIndices[entry[0]] = idx;
+      image.src = images[idx];
+      wrap.classList.toggle('is-single', images.length <= 1);
+      show(wrap, true);
+      show(nav, images.length > 1);
+      if (counter) counter.textContent = (idx + 1) + ' / ' + images.length;
     });
     var features = Array.isArray(home.features) ? home.features : DEFAULT_HOME.features;
     var grid = el('home-feature-grid');
@@ -1342,14 +1447,18 @@
     });
     var home = Object.assign({}, DEFAULT_HOME, site.home || {});
     state.homeDraftFeatures = (Array.isArray(home.features) ? home.features : DEFAULT_HOME.features).map(function (f) { return Object.assign({}, f); });
-    Object.keys(HOME_FIELDS).forEach(function (key) { el(HOME_FIELDS[key]).value = home[key] || ''; });
+    Object.keys(HOME_FIELDS).forEach(function (key) {
+      var field = el(HOME_FIELDS[key]);
+      if (field) field.value = home[key] || '';
+    });
     state.homeDraftImages = {
-      heroImageUrl: home.heroImageUrl || '', featureSectionImageUrl: home.featureSectionImageUrl || ''
+      heroImages: getShowcaseImages(home, 'heroImages', 'heroImageUrl').slice(),
+      featureSectionImages: getShowcaseImages(home, 'featureSectionImages', 'featureSectionImageUrl').slice()
     };
     if (!state.homeSectionImageRefresh) {
       state.homeSectionImageRefresh = [
-        initializeSectionImageEditor('home-hero-media', 'heroImageUrl'),
-        initializeSectionImageEditor('home-feature-media', 'featureSectionImageUrl')
+        initializeSectionImageEditor('home-hero-media', 'heroImages'),
+        initializeSectionImageEditor('home-feature-media', 'featureSectionImages')
       ];
     }
     state.homeSectionImageRefresh.forEach(function (refresh) { refresh(); });
@@ -1378,13 +1487,19 @@
   async function saveHome(event) {
     event.preventDefault();
     setHomeError('');
+    var homePayload = Object.keys(HOME_FIELDS).reduce(function (result, key) {
+      var field = el(HOME_FIELDS[key]);
+      if (field) result[key] = field.value;
+      return result;
+    }, {});
+    homePayload.features = state.homeDraftFeatures;
+    homePayload.heroImages = state.homeDraftImages.heroImages;
+    homePayload.heroImageUrl = state.homeDraftImages.heroImages[0] || '';
+    homePayload.featureSectionImages = state.homeDraftImages.featureSectionImages;
+    homePayload.featureSectionImageUrl = state.homeDraftImages.featureSectionImages[0] || '';
     var payload = {
       title: el('home-title-input').value,
-      home: Object.assign(Object.keys(HOME_FIELDS).reduce(function (result, key) {
-        result[key] = el(HOME_FIELDS[key]).value; return result;
-      }, {}), { features: state.homeDraftFeatures,
-        heroImageUrl: state.homeDraftImages.heroImageUrl,
-        featureSectionImageUrl: state.homeDraftImages.featureSectionImageUrl }),
+      home: homePayload,
       tags: el('home-tags-input').value
         .split(',')
         .map(function (t) { return t.trim(); })
@@ -1558,6 +1673,27 @@
       if (state.homeDraftFeatures.length >= 8) return;
       state.homeDraftFeatures.push({ eyebrow: '', imageUrl: '', title: 'New feature', description: '', icon: 'eye', iconUrl: '' });
       renderFeatureEditor();
+    });
+
+    [['home-hero-media', 'heroImages', 'heroImageUrl'],
+     ['home-feature-media', 'featureSectionImages', 'featureSectionImageUrl']].forEach(function (cfg) {
+      var prefix = cfg[0];
+      var arrayKey = cfg[1];
+      var legacyKey = cfg[2];
+      function step(delta) {
+        var home = Object.assign({}, DEFAULT_HOME, currentSite().home || {});
+        var images = getShowcaseImages(home, arrayKey, legacyKey);
+        if (images.length <= 1) return;
+        var current = state.showcaseIndices[arrayKey] || 0;
+        state.showcaseIndices[arrayKey] = (current + delta + images.length) % images.length;
+        renderHome();
+      }
+      el(prefix + '-prev').addEventListener('click', function () { step(-1); });
+      el(prefix + '-next').addEventListener('click', function () { step(1); });
+      el(prefix).addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowUp') { e.preventDefault(); step(-1); }
+        else if (e.key === 'ArrowDown') { e.preventDefault(); step(1); }
+      });
     });
 
     // Guide events

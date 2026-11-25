@@ -204,11 +204,28 @@ async function loadJson<T>(env: WorkerEnv, key: string, fallback: T): Promise<T>
 async function loadSite(env: WorkerEnv): Promise<SiteSettings> {
   const stored = await loadJson<Partial<SiteSettings> | null>(env, SITE_KV_KEY, null);
   if (!stored || typeof stored !== 'object') return DEFAULT_SITE_SETTINGS;
+  const storedHome = stored.home || ({} as Partial<SiteSettings['home']>);
+  const heroImages = Array.isArray(storedHome.heroImages)
+    ? storedHome.heroImages
+    : storedHome.heroImageUrl
+      ? [storedHome.heroImageUrl]
+      : DEFAULT_HOME.heroImages;
+  const featureSectionImages = Array.isArray(storedHome.featureSectionImages)
+    ? storedHome.featureSectionImages
+    : storedHome.featureSectionImageUrl
+      ? [storedHome.featureSectionImageUrl]
+      : DEFAULT_HOME.featureSectionImages;
   return {
     ...DEFAULT_SITE_SETTINGS,
     ...stored,
     socials: { ...DEFAULT_SITE_SETTINGS.socials, ...(stored.socials || {}) },
-    home: { ...DEFAULT_HOME, ...(stored.home || {}), features: Array.isArray(stored.home?.features) ? stored.home.features : DEFAULT_HOME.features },
+    home: {
+      ...DEFAULT_HOME,
+      ...storedHome,
+      heroImages,
+      featureSectionImages,
+      features: Array.isArray(storedHome.features) ? storedHome.features : DEFAULT_HOME.features,
+    },
     buttons: Array.isArray(stored.buttons) ? stored.buttons : DEFAULT_SITE_SETTINGS.buttons,
     tags: Array.isArray(stored.tags) ? stored.tags : DEFAULT_SITE_SETTINGS.tags,
   };

@@ -15,7 +15,7 @@
       href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=20261123-redesign-1" />
+    <link rel="stylesheet" href="/styles.css?v=20261125-1" />
   </head>
   <body>
     <header class="topbar">
@@ -64,7 +64,6 @@
       <section id="view-home" class="view-section home-stage" aria-label="Home">
         <div class="hero-aura" aria-hidden="true"></div>
         <div class="hero">
-          <div class="hero-eyebrow"><span class="eyebrow-spark"></span> <span id="home-hero-eyebrow">THE PATH OF EXILE OVERLAY</span> <span class="eyebrow-spark"></span></div>
           <img src="/assets/vaalauras_logo.png" alt="" class="hero-logo" id="hero-logo" width="120" height="120" />
           <h1 class="hero-title" id="hero-title"><img src="/assets/vaalauras_wordmark.png" class="hero-wordmark" alt="VaalAuras" width="768" height="214" /></h1>
           <div class="hero-tags hidden" id="hero-tags"></div>
@@ -72,7 +71,18 @@
           <p class="hero-subline" id="hero-subline"></p>
           <div class="hero-buttons" id="hero-buttons"></div>
           <div class="hero-footnote"><span class="hero-footnote-line"></span> <span id="home-hero-footnote">BUILT FOR YOUR BUILD</span> <span class="hero-footnote-line"></span></div>
-          <figure id="home-hero-media" class="section-showcase hero-showcase hidden"><img id="home-hero-media-image" alt="VaalAuras hero showcase" loading="lazy" /></figure>
+          <div id="home-hero-media" class="showcase-carousel hero-showcase hidden" tabindex="0" aria-label="Hero screenshots">
+            <figure class="section-showcase"><img id="home-hero-media-image" alt="VaalAuras hero showcase" loading="lazy" /></figure>
+            <div id="home-hero-media-nav" class="showcase-nav hidden" aria-label="Cycle hero screenshots">
+              <button type="button" id="home-hero-media-prev" class="showcase-arrow" aria-label="Previous screenshot" title="Previous screenshot">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+              </button>
+              <span id="home-hero-media-counter" class="showcase-counter tabular-nums" aria-live="polite">1 / 1</span>
+              <button type="button" id="home-hero-media-next" class="showcase-arrow" aria-label="Next screenshot" title="Next screenshot">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+            </div>
+          </div>
           <button type="button" id="btn-edit-home" class="btn btn-outline btn-sm hidden">Edit page</button>
         </div>
 
@@ -80,7 +90,18 @@
           <div class="section-kicker"><span class="kicker-dash"></span> <span id="home-section-kicker"></span> <span class="kicker-dash"></span></div>
           <h2 class="home-section-title"><span id="home-section-title"></span> <em id="home-section-highlight"></em></h2>
           <p class="home-section-intro" id="home-section-intro"></p>
-          <figure id="home-feature-media" class="section-showcase feature-showcase hidden"><img id="home-feature-media-image" alt="VaalAuras feature showcase" loading="lazy" /></figure>
+          <div id="home-feature-media" class="showcase-carousel feature-showcase hidden" tabindex="0" aria-label="Feature screenshots">
+            <figure class="section-showcase"><img id="home-feature-media-image" alt="VaalAuras feature showcase" loading="lazy" /></figure>
+            <div id="home-feature-media-nav" class="showcase-nav hidden" aria-label="Cycle feature screenshots">
+              <button type="button" id="home-feature-media-prev" class="showcase-arrow" aria-label="Previous screenshot" title="Previous screenshot">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+              </button>
+              <span id="home-feature-media-counter" class="showcase-counter tabular-nums" aria-live="polite">1 / 1</span>
+              <button type="button" id="home-feature-media-next" class="showcase-arrow" aria-label="Next screenshot" title="Next screenshot">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+            </div>
+          </div>
           <div class="feature-grid" id="home-feature-grid"></div>
           <div class="explore-panel" id="home-explore-panel">
             <div class="explore-copy"><span class="section-kicker" id="home-cta-kicker"></span><h2><span id="home-cta-title"></span> <em id="home-cta-highlight"></em></h2><p id="home-cta-description"></p></div>
@@ -121,14 +142,16 @@
             <div class="editor-subheading">Hero appearance &amp; text</div>
             <div class="field-group"><label for="home-logo-url" class="field-label">Logo image URL</label><input id="home-logo-url" class="text-input" type="text" maxlength="2048" /><p class="field-hint">Use an uploaded image path (e.g. /assets/logo.png) or a full HTTPS image URL.</p></div>
             <div class="field-group"><label for="home-wordmark-url" class="field-label">Wordmark image URL</label><input id="home-wordmark-url" class="text-input" type="text" maxlength="2048" /></div>
-            <div class="field-group"><label for="home-eyebrow" class="field-label">Top hero caption</label><input id="home-eyebrow" class="text-input" maxlength="180" /></div>
             <div class="field-group"><label for="home-footnote" class="field-label">Hero bottom caption</label><input id="home-footnote" class="text-input" maxlength="180" /></div>
             <div class="field-group section-media-editor">
-              <label for="home-hero-media-url" class="field-label">Image below hero caption (optional)</label>
-              <input id="home-hero-media-url" type="text" class="text-input" maxlength="2048" placeholder="https://... or /assets/hero.png" />
-              <div class="section-media-controls"><input id="home-hero-media-upload" type="file" class="text-input" accept="image/png,image/jpeg,image/webp" aria-label="Upload hero section image" /><button type="button" id="home-hero-media-clear" class="btn btn-ghost btn-sm">Remove image</button></div>
-              <img id="home-hero-media-preview" class="section-media-preview hidden" alt="Hero section image preview" />
-              <p id="home-hero-media-status" class="field-hint">Paste an image URL or upload a PNG, JPG, or WebP. Leave empty for no image.</p>
+              <label for="home-hero-media-url" class="field-label">Screenshots below hero caption (optional, up to 12)</label>
+              <div class="section-media-url-row">
+                <input id="home-hero-media-url" type="text" class="text-input" maxlength="2048" placeholder="https://... or /assets/hero.png" />
+                <button type="button" id="home-hero-media-add" class="btn btn-outline btn-sm">+ Add URL</button>
+              </div>
+              <div class="section-media-controls"><input id="home-hero-media-upload" type="file" multiple class="text-input" accept="image/png,image/jpeg,image/webp" aria-label="Upload hero section screenshots" /><button type="button" id="home-hero-media-clear" class="btn btn-ghost btn-sm">Remove all</button></div>
+              <div id="home-hero-media-list" class="section-media-list"></div>
+              <p id="home-hero-media-status" class="field-hint">Add image URLs or upload PNG, JPG, or WebP files. Visitors cycle through multiple screenshots with the up/down arrows.</p>
             </div>
             <div class="editor-subheading">Feature section</div>
             <div class="field-group"><label for="home-section-kicker-input" class="field-label">Section caption</label><input id="home-section-kicker-input" class="text-input" maxlength="180" /></div>
@@ -138,11 +161,14 @@
             </div>
             <div class="field-group"><label for="home-section-intro-input" class="field-label">Section description</label><textarea id="home-section-intro-input" class="text-input textarea-input" maxlength="800" rows="3"></textarea></div>
             <div class="field-group section-media-editor">
-              <label for="home-feature-media-url" class="field-label">Image below feature section description (optional)</label>
-              <input id="home-feature-media-url" type="text" class="text-input" maxlength="2048" placeholder="https://... or /assets/features.png" />
-              <div class="section-media-controls"><input id="home-feature-media-upload" type="file" class="text-input" accept="image/png,image/jpeg,image/webp" aria-label="Upload feature section image" /><button type="button" id="home-feature-media-clear" class="btn btn-ghost btn-sm">Remove image</button></div>
-              <img id="home-feature-media-preview" class="section-media-preview hidden" alt="Feature section image preview" />
-              <p id="home-feature-media-status" class="field-hint">Paste an image URL or upload a PNG, JPG, or WebP. Leave empty for no image.</p>
+              <label for="home-feature-media-url" class="field-label">Screenshots below feature section description (optional, up to 12)</label>
+              <div class="section-media-url-row">
+                <input id="home-feature-media-url" type="text" class="text-input" maxlength="2048" placeholder="https://... or /assets/features.png" />
+                <button type="button" id="home-feature-media-add" class="btn btn-outline btn-sm">+ Add URL</button>
+              </div>
+              <div class="section-media-controls"><input id="home-feature-media-upload" type="file" multiple class="text-input" accept="image/png,image/jpeg,image/webp" aria-label="Upload feature section screenshots" /><button type="button" id="home-feature-media-clear" class="btn btn-ghost btn-sm">Remove all</button></div>
+              <div id="home-feature-media-list" class="section-media-list"></div>
+              <p id="home-feature-media-status" class="field-hint">Add image URLs or upload PNG, JPG, or WebP files. Visitors cycle through multiple screenshots with the up/down arrows.</p>
             </div>
             <div class="field-group"><span class="field-label">Feature cards (drag-free reorder with arrows, up to 8)</span><div id="home-feature-editor" class="feature-editor-list"></div><button type="button" id="btn-add-feature" class="btn btn-outline btn-sm">+ Add feature card</button></div>
             <div class="editor-subheading">Bottom call-to-action</div>
@@ -441,6 +467,6 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20261123-redesign-1"></script>
+    <script src="/app.js?v=20261125-1"></script>
   </body>
 </html>
