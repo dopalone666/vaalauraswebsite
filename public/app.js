@@ -1096,6 +1096,10 @@
 
     if (valid === 'guide') renderGuideView();
     else if (valid === 'changelog') renderChangelogView();
+
+    if (updateHash !== false && window.scrollY > 4) {
+      smoothScrollTo(0);
+    }
   }
 
   /* =========================================================
@@ -1882,8 +1886,134 @@
     el('changelog-editor-form').addEventListener('submit', saveChangelogPost);
   }
 
+  var smoothScrollState = {
+    rafId: 0,
+    currentY: 0,
+    targetY: 0,
+    lastTime: 0,
+    driving: false
+  };
+
+  function maxScrollY() {
+    return Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  }
+
+  function stopSmoothScroll() {
+    if (smoothScrollState.rafId) {
+      cancelAnimationFrame(smoothScrollState.rafId);
+      smoothScrollState.rafId = 0;
+    }
+    document.documentElement.style.scrollBehavior = '';
+    smoothScrollState.driving = false;
+    smoothScrollState.lastTime = 0;
+  }
+
+  function stepSmoothScroll(now) {
+    if (!smoothScrollState.lastTime) smoothScrollState.lastTime = now;
+    var dt = Math.min(50, Math.max(4, now - smoothScrollState.lastTime));
+    smoothScrollState.lastTime = now;
+
+    var maxY = maxScrollY();
+    if (smoothScrollState.targetY < 0) smoothScrollState.targetY = 0;
+    if (smoothScrollState.targetY > maxY) smoothScrollState.targetY = maxY;
+
+    var diff = smoothScrollState.targetY - smoothScrollState.currentY;
+    if (Math.abs(diff) < 0.6) {
+      smoothScrollState.driving = true;
+      window.scrollTo({ top: smoothScrollState.targetY, behavior: 'instant' });
+      smoothScrollState.currentY = smoothScrollState.targetY;
+      stopSmoothScroll();
+      return;
+    }
+
+    var alpha = 1 - Math.exp(-0.0115 * dt);
+    smoothScrollState.currentY += diff * alpha;
+    smoothScrollState.driving = true;
+    document.documentElement.style.scrollBehavior = 'auto';
+    window.scrollTo({ top: smoothScrollState.currentY, behavior: 'instant' });
+    requestAnimationFrame(function () { smoothScrollState.driving = false; });
+    smoothScrollState.rafId = requestAnimationFrame(stepSmoothScroll);
+  }
+
+  function smoothScrollTo(nextTargetY) {
+    var maxY = maxScrollY();
+    var clamped = Math.max(0, Math.min(maxY, nextTargetY));
+    if (!smoothScrollState.rafId) {
+      smoothScrollState.currentY = window.scrollY;
+    }
+    smoothScrollState.targetY = clamped;
+    if (!smoothScrollState.rafId) {
+      smoothScrollState.lastTime = 0;
+      smoothScrollState.rafId = requestAnimationFrame(stepSmoothScroll);
+    }
+  }
+
+  function findScrollableAncestor(target, deltaY) {
+    var node = target && target.nodeType === 1 ? target : (target && target.parentElement);
+    while (node && node !== document.body && node !== document.documentElement) {
+      if (node.scrollHeight > node.clientHeight + 1) {
+        var style = window.getComputedStyle(node);
+        var oy = style.overflowY;
+        if (oy === 'auto' || oy === 'scroll' || oy === 'overlay') {
+          var canScrollUp = deltaY < 0 && node.scrollTop > 0;
+          var canScrollDown = deltaY > 0 && node.scrollTop + node.clientHeight < node.scrollHeight - 1;
+          if (canScrollUp || canScrollDown) return node;
+        }
+      }
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  function initSmoothScroll() {
+    smoothScrollState.currentY = window.scrollY;
+    smoothScrollState.targetY = window.scrollY;
+
+    window.addEventListener('wheel', function (e) {
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (!e.deltaY) return;
+      if (document.querySelector('dialog[open]')) return;
+      if (findScrollableAncestor(e.target, e.deltaY)) return;
+
+      var delta = e.deltaY;
+      if (e.deltaMode === 1) delta *= 36;
+      else if (e.deltaMode === 2) delta *= window.innerHeight * 0.85;
+
+      // Preserve native sub-pixel precision for ultra-tiny trackpad micro-deltas only when idle
+      if (e.deltaMode === 0 && Math.abs(delta) < 3 && !smoothScrollState.rafId) return;
+
+      e.preventDefault();
+      var base = smoothScrollState.rafId ? smoothScrollState.targetY : window.scrollY;
+      smoothScrollState.currentY = smoothScrollState.rafId ? smoothScrollState.currentY : window.scrollY;
+      smoothScrollTo(base + delta);
+    }, { passive: false });
+
+    window.addEventListener('scroll', function () {
+      if (smoothScrollState.driving) return;
+      if (!smoothScrollState.rafId) {
+        smoothScrollState.currentY = window.scrollY;
+        smoothScrollState.targetY = window.scrollY;
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchstart', stopSmoothScroll, { passive: true });
+    window.addEventListener('mousedown', function (e) {
+      // Stop inertia immediately if grabbing the browser scrollbar
+      if (e.clientX >= document.documentElement.clientWidth) {
+        stopSmoothScroll();
+      }
+    }, { passive: true });
+    window.addEventListener('keydown', function (e) {
+      if (e.key === 'PageUp' || e.key === 'PageDown' || e.key === 'Home' || e.key === 'End' || e.key === ' ') {
+        if (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/i.test(document.activeElement.tagName)) return;
+        stopSmoothScroll();
+      }
+    }, { passive: true });
+  }
+
   async function init() {
     wireEvents();
+    initSmoothScroll();
 
     var hash = window.location.hash.replace(/^#/, '').toLowerCase();
     if (hash === 'guide' || hash === 'changelog') {
