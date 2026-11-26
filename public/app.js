@@ -2202,6 +2202,19 @@
     animateLightboxSlide(images[nextIndex], nextIndex, images.length, delta);
   }
 
+  function cancelStageAnimations(stage) {
+    if (lightboxState.activeAnim) {
+      try { lightboxState.activeAnim.cancel(); } catch (_) {}
+      lightboxState.activeAnim = null;
+    }
+    if (stage && typeof stage.getAnimations === 'function') {
+      var list = stage.getAnimations();
+      for (var i = 0; i < list.length; i += 1) {
+        try { list[i].cancel(); } catch (_) {}
+      }
+    }
+  }
+
   function openLightbox(sourceImgEl, controller) {
     var box = el('screenshot-lightbox');
     var stage = el('lightbox-stage');
@@ -2211,10 +2224,9 @@
     if (lightboxState.open && !lightboxState.closing) return;
 
     clearTimeout(lightboxState.closeTimer);
-    if (lightboxState.activeAnim) {
-      try { lightboxState.activeAnim.cancel(); } catch (_) {}
-      lightboxState.activeAnim = null;
-    }
+    cancelStageAnimations(stage);
+    stage.style.opacity = '';
+    stage.style.transform = '';
 
     stopSmoothScroll();
     lightboxState.open = true;
@@ -2238,13 +2250,19 @@
     var fromTransform = getLightboxFlipTransform(sourceImgEl, stage) || 'translate3d(0, 20px, 0) scale(0.84)';
     box.classList.add('is-open');
     if (typeof stage.animate === 'function') {
-      lightboxState.activeAnim = stage.animate(
+      var openAnim = stage.animate(
         [
           { transform: fromTransform, opacity: 0.25 },
           { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1 }
         ],
         { duration: 400, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'none' }
       );
+      lightboxState.activeAnim = openAnim;
+      openAnim.onfinish = function () {
+        if (lightboxState.activeAnim === openAnim) {
+          lightboxState.activeAnim = null;
+        }
+      };
     }
     if (closeBtn) closeBtn.focus();
   }
@@ -2258,10 +2276,7 @@
     box.classList.remove('is-open');
     box.classList.add('is-closing');
 
-    if (lightboxState.activeAnim) {
-      try { lightboxState.activeAnim.cancel(); } catch (_) {}
-      lightboxState.activeAnim = null;
-    }
+    cancelStageAnimations(stage);
 
     var toTransform = getLightboxFlipTransform(lightboxState.sourceEl, stage) || 'translate3d(0, 18px, 0) scale(0.86)';
     var finished = false;
@@ -2272,7 +2287,9 @@
       box.classList.add('hidden');
       box.classList.remove('is-closing', 'is-open');
       box.setAttribute('aria-hidden', 'true');
-      lightboxState.activeAnim = null;
+      cancelStageAnimations(stage);
+      stage.style.opacity = '';
+      stage.style.transform = '';
       lightboxState.open = false;
       lightboxState.closing = false;
       var restoreFocusEl = lightboxState.sourceEl;
@@ -2287,15 +2304,15 @@
     }
 
     if (typeof stage.animate === 'function') {
-      var anim = stage.animate(
+      var closeAnim = stage.animate(
         [
           { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1 },
           { transform: toTransform, opacity: 0 }
         ],
         { duration: 300, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'forwards' }
       );
-      lightboxState.activeAnim = anim;
-      anim.onfinish = finishClose;
+      lightboxState.activeAnim = closeAnim;
+      closeAnim.onfinish = finishClose;
       lightboxState.closeTimer = setTimeout(finishClose, 340);
     } else {
       lightboxState.closeTimer = setTimeout(finishClose, 300);
