@@ -39,6 +39,7 @@ export interface SocialLinks {
 export interface HomeFeature {
   eyebrow: string;
   imageUrl: string;
+  mediaType?: 'image' | 'video';
   title: string;
   description: string;
   icon: 'eye' | 'sliders' | 'shield' | 'none' | 'custom';

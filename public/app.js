@@ -126,6 +126,52 @@
     );
   }
 
+  function isVideoMediaSource(url, mediaType) {
+    if (mediaType === 'video') return true;
+    if (mediaType === 'image') return false;
+    return typeof url === 'string' && /\.(?:mp4|webm|m4v)(?:[?#]|$)/i.test(url.trim());
+  }
+
+  function inferMimeFromFile(file) {
+    var mime = (file && file.type ? file.type : '').split(';')[0].trim().toLowerCase();
+    if (mime) return mime;
+    var name = file && file.name ? file.name.toLowerCase() : '';
+    if (name.endsWith('.mp4') || name.endsWith('.m4v')) return 'video/mp4';
+    if (name.endsWith('.webm')) return 'video/webm';
+    if (name.endsWith('.png')) return 'image/png';
+    if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg';
+    if (name.endsWith('.webp')) return 'image/webp';
+    return '';
+  }
+
+  async function uploadCardMediaFile(file) {
+    var mime = inferMimeFromFile(file);
+    if (!/^(?:video\/(?:mp4|webm)|image\/(?:png|jpeg|webp))$/.test(mime)) {
+      throw new Error('Use MP4 (H.264) or WebM video, or PNG, JPG, or WebP image.');
+    }
+    if (!file || file.size === 0) {
+      throw new Error('Selected file is empty.');
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      throw new Error('File is too large. Keep card videos and images under 15 MB.');
+    }
+    var res = await fetch('/api/media', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'X-Requested-With': 'VaalAuras',
+        'Content-Type': mime
+      },
+      body: file
+    });
+    var data = {};
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok) {
+      throw new Error(data.error || ('Upload failed (' + res.status + ').'));
+    }
+    return { url: data.url, mediaType: data.mediaType || (/^video\//.test(mime) ? 'video' : 'image') };
+  }
+
   // Resize uploaded icons in the browser before embedding in admin-protected KV content.
   // This avoids a separate storage dependency and keeps site settings lightweight.
   function readUploadedIcon(file) {
@@ -1192,19 +1238,38 @@
 
       if (feature.imageUrl && isSafeHref(feature.imageUrl)) {
         var media = document.createElement('div'); media.className = 'feature-media';
-        var mediaImg = document.createElement('img');
-        mediaImg.className = 'feature-media-img';
-        mediaImg.src = feature.imageUrl;
-        mediaImg.alt = feature.title ? feature.title + ' artwork' : 'Feature artwork';
-        mediaImg.loading = 'lazy';
-        mediaImg.tabIndex = 0;
-        mediaImg.setAttribute('role', 'button');
-        mediaImg.setAttribute('aria-label', 'Maximize ' + (feature.title || 'feature') + ' screenshot');
-        mediaImg.addEventListener('click', function () { openLightbox(mediaImg, null); });
-        mediaImg.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLightbox(mediaImg, null); }
+        var isVideo = isVideoMediaSource(feature.imageUrl, feature.mediaType);
+        var mediaEl;
+        if (isVideo) {
+          mediaEl = document.createElement('video');
+          mediaEl.className = 'feature-media-img';
+          mediaEl.src = feature.imageUrl;
+          mediaEl.autoplay = true;
+          mediaEl.loop = true;
+          mediaEl.muted = true;
+          mediaEl.defaultMuted = true;
+          mediaEl.playsInline = true;
+          mediaEl.preload = 'metadata';
+          mediaEl.setAttribute('aria-label', 'Maximize ' + (feature.title || 'feature') + ' video');
+        } else {
+          mediaEl = document.createElement('img');
+          mediaEl.className = 'feature-media-img';
+          mediaEl.src = feature.imageUrl;
+          mediaEl.alt = feature.title ? feature.title + ' artwork' : 'Feature artwork';
+          mediaEl.loading = 'lazy';
+          mediaEl.setAttribute('aria-label', 'Maximize ' + (feature.title || 'feature') + ' screenshot');
+        }
+        mediaEl.tabIndex = 0;
+        mediaEl.setAttribute('role', 'button');
+        mediaEl.addEventListener('click', function () { openLightbox(mediaEl, null); });
+        mediaEl.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLightbox(mediaEl, null); }
         });
-        media.appendChild(mediaImg);
+        var zoomHint = document.createElement('span');
+        zoomHint.className = 'showcase-zoom-hint';
+        zoomHint.setAttribute('aria-hidden', 'true');
+        zoomHint.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>';
+        media.append(mediaEl, zoomHint);
         card.appendChild(media);
       }
 
@@ -1399,7 +1464,101 @@
       });
       top.append(name, actions); card.appendChild(top);
       card.appendChild(buildHomeField('Small caption', f.eyebrow, 60, false, function (v) { f.eyebrow = v; }));
-      card.appendChild(buildHomeField('Image URL (shown under the caption)', f.imageUrl || '', 2048, false, function (v) { f.imageUrl = v; }));
+
+      var cardMediaGroup = document.createElement('div');
+      cardMediaGroup.className = 'field-group feature-card-media-editor';
+      var cardMediaLabel = document.createElement('label');
+      cardMediaLabel.className = 'field-label';
+      cardMediaLabel.textContent = 'Card media URL or upload (video or image)';
+      var cardMediaUrl = document.createElement('input');
+      cardMediaUrl.type = 'text';
+      cardMediaUrl.className = 'text-input';
+      cardMediaUrl.maxLength = 2048;
+      cardMediaUrl.placeholder = 'https://... or upload MP4 / WebM / PNG below';
+      cardMediaUrl.value = f.imageUrl || '';
+      cardMediaLabel.appendChild(cardMediaUrl);
+      cardMediaGroup.appendChild(cardMediaLabel);
+
+      var cardMediaRow = document.createElement('div');
+      cardMediaRow.className = 'feature-upload-row';
+      var cardMediaUpload = document.createElement('input');
+      cardMediaUpload.type = 'file';
+      cardMediaUpload.className = 'text-input feature-icon-file';
+      cardMediaUpload.accept = 'video/mp4,video/webm,image/png,image/jpeg,image/webp,.mp4,.webm,.png,.jpg,.jpeg,.webp';
+      cardMediaUpload.setAttribute('aria-label', 'Upload video or screenshot for feature card ' + (index + 1));
+      var cardMediaPreview = document.createElement('div');
+      cardMediaPreview.className = 'feature-media-preview';
+      var cardMediaStatus = document.createElement('span');
+      cardMediaStatus.className = 'field-hint';
+      cardMediaStatus.textContent = 'Best format: MP4 (H.264) or WebM under 15 MB. PNG, JPG, and WebP screenshots also supported.';
+
+      function updateCardMediaPreview() {
+        cardMediaPreview.replaceChildren();
+        var src = (f.imageUrl || '').trim();
+        if (src && isSafeHref(src)) {
+          if (isVideoMediaSource(src, f.mediaType)) {
+            var vid = document.createElement('video');
+            vid.src = src;
+            vid.muted = true;
+            vid.defaultMuted = true;
+            vid.loop = true;
+            vid.autoplay = true;
+            vid.playsInline = true;
+            vid.preload = 'metadata';
+            cardMediaPreview.appendChild(vid);
+          } else {
+            var thumb = document.createElement('img');
+            thumb.src = src;
+            thumb.alt = 'Card media preview';
+            cardMediaPreview.appendChild(thumb);
+          }
+        } else {
+          cardMediaPreview.textContent = 'No media';
+        }
+      }
+
+      cardMediaUrl.addEventListener('input', function () {
+        f.imageUrl = cardMediaUrl.value;
+        f.mediaType = isVideoMediaSource(cardMediaUrl.value) ? 'video' : undefined;
+        updateCardMediaPreview();
+      });
+
+      cardMediaUpload.addEventListener('change', async function () {
+        if (!cardMediaUpload.files || !cardMediaUpload.files[0]) return;
+        cardMediaUpload.disabled = true;
+        cardMediaStatus.textContent = 'Uploading media...';
+        try {
+          var uploaded = await uploadCardMediaFile(cardMediaUpload.files[0]);
+          f.imageUrl = uploaded.url;
+          f.mediaType = uploaded.mediaType;
+          cardMediaUrl.value = uploaded.url;
+          cardMediaStatus.textContent = (uploaded.mediaType === 'video' ? 'Video' : 'Image') + ' uploaded. Click Save changes to update the page.';
+          updateCardMediaPreview();
+        } catch (err) {
+          cardMediaStatus.textContent = err.message;
+        } finally {
+          cardMediaUpload.disabled = false;
+          cardMediaUpload.value = '';
+        }
+      });
+
+      var cardMediaClear = document.createElement('button');
+      cardMediaClear.type = 'button';
+      cardMediaClear.className = 'btn btn-ghost btn-sm';
+      cardMediaClear.textContent = 'Clear card media';
+      cardMediaClear.addEventListener('click', function () {
+        f.imageUrl = '';
+        delete f.mediaType;
+        cardMediaUrl.value = '';
+        cardMediaStatus.textContent = 'Card media cleared. Save changes to remove it from the live card.';
+        updateCardMediaPreview();
+      });
+
+      cardMediaRow.append(cardMediaUpload, cardMediaPreview);
+      cardMediaGroup.append(cardMediaRow, cardMediaStatus, cardMediaClear);
+      updateCardMediaPreview();
+      card.appendChild(cardMediaGroup);
+
       card.appendChild(buildHomeField('Title', f.title, 100, false, function (v) { f.title = v; }));
       card.appendChild(buildHomeField('Description', f.description, 800, true, function (v) { f.description = v; }));
       var iconGroup = document.createElement('div'); iconGroup.className = 'field-group feature-icon-editor';
@@ -2215,12 +2374,13 @@
     }
   }
 
-  function openLightbox(sourceImgEl, controller) {
+  function openLightbox(sourceMediaEl, controller) {
     var box = el('screenshot-lightbox');
     var stage = el('lightbox-stage');
     var image = el('lightbox-image');
+    var video = el('lightbox-video');
     var closeBtn = el('lightbox-close');
-    if (!box || !stage || !image || !sourceImgEl) return;
+    if (!box || !stage || !image || !sourceMediaEl) return;
     if (lightboxState.open && !lightboxState.closing) return;
 
     clearTimeout(lightboxState.closeTimer);
@@ -2231,7 +2391,7 @@
     stopSmoothScroll();
     lightboxState.open = true;
     lightboxState.closing = false;
-    lightboxState.sourceEl = sourceImgEl;
+    lightboxState.sourceEl = sourceMediaEl;
     lightboxState.controller = controller || null;
 
     var oldOutgoing = stage.querySelectorAll('.showcase-outgoing');
@@ -2239,15 +2399,38 @@
     image.classList.remove('showcase-enter-next', 'showcase-enter-prev');
     stage.classList.remove('is-switching-next', 'is-switching-prev');
 
-    image.src = sourceImgEl.currentSrc || sourceImgEl.getAttribute('src') || '';
-    image.alt = sourceImgEl.alt || 'Maximized screenshot';
+    var srcUrl = sourceMediaEl.currentSrc || sourceMediaEl.getAttribute('src') || '';
+    var isVideo = sourceMediaEl.tagName === 'VIDEO';
+    if (isVideo && video) {
+      box.setAttribute('aria-label', 'Maximized video');
+      image.classList.add('hidden');
+      image.removeAttribute('src');
+      video.classList.remove('hidden');
+      video.src = srcUrl;
+      try {
+        video.currentTime = sourceMediaEl.currentTime || 0;
+        var p = video.play();
+        if (p && typeof p.catch === 'function') p.catch(function () {});
+      } catch (_) {}
+    } else {
+      box.setAttribute('aria-label', 'Maximized screenshot');
+      if (video) {
+        try { video.pause(); } catch (_) {}
+        video.classList.add('hidden');
+        video.removeAttribute('src');
+        if (typeof video.load === 'function') video.load();
+      }
+      image.classList.remove('hidden');
+      image.src = srcUrl;
+      image.alt = sourceMediaEl.alt || 'Maximized screenshot';
+    }
     renderLightboxNav();
 
     box.classList.remove('hidden', 'is-closing', 'is-open');
     box.setAttribute('aria-hidden', 'false');
     void box.offsetWidth;
 
-    var fromTransform = getLightboxFlipTransform(sourceImgEl, stage) || 'translate3d(0, 20px, 0) scale(0.84)';
+    var fromTransform = getLightboxFlipTransform(sourceMediaEl, stage) || 'translate3d(0, 20px, 0) scale(0.84)';
     box.classList.add('is-open');
     if (typeof stage.animate === 'function') {
       var openAnim = stage.animate(
@@ -2290,6 +2473,15 @@
       cancelStageAnimations(stage);
       stage.style.opacity = '';
       stage.style.transform = '';
+      var video = el('lightbox-video');
+      if (video) {
+        try { video.pause(); } catch (_) {}
+        video.classList.add('hidden');
+        video.removeAttribute('src');
+        if (typeof video.load === 'function') video.load();
+      }
+      var image = el('lightbox-image');
+      if (image) image.classList.remove('hidden');
       lightboxState.open = false;
       lightboxState.closing = false;
       var restoreFocusEl = lightboxState.sourceEl;

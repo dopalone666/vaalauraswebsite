@@ -37,7 +37,17 @@ const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const SITE_KV_KEY = 'content:site:v1';
 const CHANGELOG_KV_KEY = 'content:changelogs:v1';
 const GUIDE_KV_KEY = 'content:guides:v1';
+const MEDIA_KV_PREFIX = 'media:v1:';
 const MAX_CONTENT_ITEMS = 100;
+const MAX_MEDIA_BYTES = 15 * 1024 * 1024;
+
+const ALLOWED_MEDIA_TYPES: Record<string, { ext: string; mediaType: 'video' | 'image' }> = {
+  'video/mp4': { ext: 'mp4', mediaType: 'video' },
+  'video/webm': { ext: 'webm', mediaType: 'video' },
+  'image/png': { ext: 'png', mediaType: 'image' },
+  'image/jpeg': { ext: 'jpg', mediaType: 'image' },
+  'image/webp': { ext: 'webp', mediaType: 'image' },
+};
 
 const KV_MISSING_ERROR =
   'Storage is not set up yet. Bind a KV namespace named CONTENT_KV in Cloudflare Worker Settings -> Bindings.';
@@ -239,6 +249,102 @@ async function loadChangelogs(env: WorkerEnv): Promise<ChangelogPost[]> {
 async function loadGuides(env: WorkerEnv): Promise<GuideArticle[]> {
   const data = await loadJson<unknown>(env, GUIDE_KV_KEY, DEFAULT_GUIDE_ARTICLES);
   return Array.isArray(data) ? (data as GuideArticle[]) : DEFAULT_GUIDE_ARTICLES;
+}
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const slice = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...slice);
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    out[i] = binary.charCodeAt(i);
+  }
+  return out;
+}
+
+function matchesMediaSignature(bytes: Uint8Array, mime: string): boolean {
+  if (mime === 'video/mp4') {
+    return (
+      bytes.length >= 12 &&
+      bytes[4] === 0x66 &&
+      bytes[5] === 0x74 &&
+      bytes[6] === 0x79 &&
+      bytes[7] === 0x70
+    );
+  }
+  if (mime === 'video/webm') {
+    return (
+      bytes.length >= 4 &&
+      bytes[0] === 0x1a &&
+      bytes[1] === 0x45 &&
+      bytes[2] === 0xdf &&
+      bytes[3] === 0xa3
+    );
+  }
+  if (mime === 'image/png') {
+    return (
+      bytes.length >= 8 &&
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47 &&
+      bytes[4] === 0x0d &&
+      bytes[5] === 0x0a &&
+      bytes[6] === 0x1a &&
+      bytes[7] === 0x0a
+    );
+  }
+  if (mime === 'image/jpeg') {
+    return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  }
+  if (mime === 'image/webp') {
+    return (
+      bytes.length >= 12 &&
+      bytes[0] === 0x52 &&
+      bytes[1] === 0x49 &&
+      bytes[2] === 0x46 &&
+      bytes[3] === 0x46 &&
+      bytes[8] === 0x57 &&
+      bytes[9] === 0x45 &&
+      bytes[10] === 0x42 &&
+      bytes[11] === 0x50
+    );
+  }
+  return false;
+}
+
+function parseByteRange(
+  rangeHeader: string | null,
+  totalBytes: number
+): { start: number; end: number } | 'invalid' | null {
+  if (!rangeHeader) return null;
+  const match = rangeHeader.trim().match(/^bytes=(\d*)-(\d*)$/i);
+  if (!match) return 'invalid';
+  const rawStart = match[1];
+  const rawEnd = match[2];
+  if (!rawStart && !rawEnd) return 'invalid';
+
+  if (!rawStart) {
+    const suffixLen = Number(rawEnd);
+    if (!Number.isFinite(suffixLen) || suffixLen <= 0) return 'invalid';
+    const start = Math.max(0, totalBytes - suffixLen);
+    return { start, end: Math.max(start, totalBytes - 1) };
+  }
+
+  const start = Number(rawStart);
+  const end = rawEnd ? Math.min(totalBytes - 1, Number(rawEnd)) : totalBytes - 1;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start >= totalBytes || start > end) {
+    return 'invalid';
+  }
+  return { start, end };
 }
 
 /* ------------------------------------------------------------------ */
@@ -459,6 +565,115 @@ export async function handleApiRequest(
     const articles = existing.map((a, i) => (i === idx ? article : a));
     await env.CONTENT_KV.put(GUIDE_KV_KEY, JSON.stringify(articles));
     return jsonResponse({ article, articles });
+  }
+
+  /* ---- Uploaded Card Media (MP4, WebM, PNG, JPEG, WebP) ---- */
+
+  if (method === 'POST' && pathname === '/api/media') {
+    const denied = await requireDeveloper(request, env);
+    if (denied) return denied;
+    if (!env.CONTENT_KV) return jsonResponse({ error: KV_MISSING_ERROR }, 503);
+
+    const rawMime = (request.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    const spec = ALLOWED_MEDIA_TYPES[rawMime];
+    if (!spec) {
+      return jsonResponse(
+        { error: 'Unsupported format. Upload an MP4 or WebM video, or a PNG, JPG, or WebP image.' },
+        400
+      );
+    }
+
+    const declaredLength = Number(request.headers.get('content-length') || '0');
+    if (declaredLength > MAX_MEDIA_BYTES) {
+      return jsonResponse({ error: 'File too large. Keep uploaded videos and images under 15 MB.' }, 413);
+    }
+
+    let bytes: Uint8Array;
+    try {
+      bytes = new Uint8Array(await request.arrayBuffer());
+    } catch {
+      return jsonResponse({ error: 'Could not read uploaded file.' }, 400);
+    }
+
+    if (bytes.byteLength === 0) {
+      return jsonResponse({ error: 'Uploaded file is empty.' }, 400);
+    }
+    if (bytes.byteLength > MAX_MEDIA_BYTES) {
+      return jsonResponse({ error: 'File too large. Keep uploaded videos and images under 15 MB.' }, 413);
+    }
+    if (!matchesMediaSignature(bytes, rawMime)) {
+      return jsonResponse(
+        { error: 'File contents do not match the selected format. Try re-exporting as MP4 (H.264) or WebM.' },
+        400
+      );
+    }
+
+    const id = `med-${randomHex(10)}.${spec.ext}`;
+    const payload = JSON.stringify({ contentType: rawMime, data: uint8ToBase64(bytes) });
+    await env.CONTENT_KV.put(`${MEDIA_KV_PREFIX}${id}`, payload);
+    return jsonResponse(
+      {
+        ok: true,
+        url: `/api/media/${id}`,
+        mediaType: spec.mediaType,
+        contentType: rawMime,
+        size: bytes.byteLength,
+      },
+      201
+    );
+  }
+
+  const mediaMatch = pathname.match(/^\/api\/media\/(med-[a-f0-9]{16,32}\.(?:mp4|webm|png|jpg|webp))$/);
+  if (mediaMatch && (method === 'GET' || method === 'HEAD')) {
+    if (!env.CONTENT_KV) return new Response('Not Found', { status: 404 });
+    const raw = await env.CONTENT_KV.get(`${MEDIA_KV_PREFIX}${mediaMatch[1]}`);
+    if (!raw) return new Response('Not Found', { status: 404 });
+
+    let stored: { contentType?: string; data?: string } | null = null;
+    try {
+      stored = JSON.parse(raw) as { contentType?: string; data?: string };
+    } catch {
+      return new Response('Not Found', { status: 404 });
+    }
+    if (!stored || typeof stored.data !== 'string' || typeof stored.contentType !== 'string' || !ALLOWED_MEDIA_TYPES[stored.contentType]) {
+      return new Response('Not Found', { status: 404 });
+    }
+
+    const bytes = base64ToUint8(stored.data);
+    const total = bytes.byteLength;
+    const range = parseByteRange(request.headers.get('range'), total);
+    if (range === 'invalid') {
+      return new Response(null, {
+        status: 416,
+        headers: { 'Content-Range': `bytes */${total}` },
+      });
+    }
+
+    if (range) {
+      const slice = bytes.subarray(range.start, range.end + 1);
+      return new Response(method === 'HEAD' ? null : (slice.buffer.slice(slice.byteOffset, slice.byteOffset + slice.byteLength) as ArrayBuffer), {
+        status: 206,
+        headers: {
+          'Content-Type': stored.contentType,
+          'Content-Length': String(slice.byteLength),
+          'Content-Range': `bytes ${range.start}-${range.end}/${total}`,
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'X-Content-Type-Options': 'nosniff',
+        },
+      });
+    }
+
+    return new Response(method === 'HEAD' ? null : (bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer), {
+      status: 200,
+      headers: {
+        'Content-Type': stored.contentType,
+        'Content-Length': String(total),
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    });
   }
 
   return jsonResponse({ error: 'Not found.' }, 404);

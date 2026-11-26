@@ -139,7 +139,9 @@ export function validateSiteInput(
     if (!title) return { ok: false, error: 'Every feature card requires a title.' };
     const imageValue = typeof item.imageUrl === 'string' ? item.imageUrl.trim() : '';
     const imageUrl = imageValue ? normalizeLinkUrl(imageValue) : '';
-    if (imageValue && !imageUrl) return { ok: false, error: `Feature card ${features.length + 1} has an invalid image URL.` };
+    if (imageValue && !imageUrl) return { ok: false, error: `Feature card ${features.length + 1} has an invalid media URL.` };
+    const mediaType =
+      item.mediaType === 'video' || item.mediaType === 'image' ? item.mediaType : undefined;
     const icon = item.icon === 'sliders' || item.icon === 'shield' || item.icon === 'none' || item.icon === 'custom' ? item.icon : 'eye';
     const rawIconUrl = typeof item.iconUrl === 'string' ? item.iconUrl.trim() : '';
     let iconUrl = '';
@@ -151,14 +153,16 @@ export function validateSiteInput(
       }
       if (rawIconUrl && !iconUrl) return { ok: false, error: `Feature card ${features.length + 1} has an invalid custom icon.` };
     }
-    features.push({
+    const featureEntry: HomeFeature = {
       title,
       eyebrow: cleanText(item.eyebrow, 60),
       imageUrl: imageUrl || '',
       description: cleanText(item.description, 800),
       icon,
       iconUrl,
-    });
+    };
+    if (mediaType) featureEntry.mediaType = mediaType;
+    features.push(featureEntry);
   }
   home.features = features;
 

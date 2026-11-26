@@ -83,6 +83,9 @@ test('home sections, feature order and image links are validated', () => {
       home: {
         heroImages: ['https://example.com/1.png', '/assets/2.png'],
         featureSectionImageUrl: 'https://example.com/legacy.png',
+        features: [
+          { title: 'Video Card', imageUrl: '/api/media/med-0123456789abcdef0123.mp4', mediaType: 'video', icon: 'eye' },
+        ],
       },
     },
     id
@@ -93,5 +96,7 @@ test('home sections, feature order and image links are validated', () => {
     assert.equal(multi.data.home.heroImageUrl, 'https://example.com/1.png');
     assert.deepEqual(multi.data.home.featureSectionImages, ['https://example.com/legacy.png']);
     assert.equal(multi.data.home.featureSectionImageUrl, 'https://example.com/legacy.png');
+    assert.equal(multi.data.home.features[0].imageUrl, '/api/media/med-0123456789abcdef0123.mp4');
+    assert.equal(multi.data.home.features[0].mediaType, 'video');
   }
 });

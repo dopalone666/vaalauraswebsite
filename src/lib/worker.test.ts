@@ -109,3 +109,60 @@ test('guide and changelog CRUD requires developer', async () => {
   const del = (await handleApiRequest(req(`/api/content/guides/${article.id}`, { method: 'DELETE', cookie }), e))!;
   assert.equal(del.status, 200);
 });
+
+test('media upload requires developer, validates format signatures, and supports Range requests', async () => {
+  const e = env();
+  // Minimal valid MP4 header ("ftypisom")
+  const mp4Bytes = new Uint8Array([
+    0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0x00, 0x00, 0x02, 0x00,
+  ]);
+
+  const unauth = (await handleApiRequest(
+    new Request('https://site.test/api/media', {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'VaalAuras', 'Content-Type': 'video/mp4' },
+      body: mp4Bytes,
+    }),
+    e
+  ))!;
+  assert.equal(unauth.status, 401);
+
+  const cookie = await login(e);
+
+  const spoofed = (await handleApiRequest(
+    new Request('https://site.test/api/media', {
+      method: 'POST',
+      headers: { cookie, 'X-Requested-With': 'VaalAuras', 'Content-Type': 'video/mp4' },
+      body: new TextEncoder().encode('<script>alert(1)</script>'),
+    }),
+    e
+  ))!;
+  assert.equal(spoofed.status, 400);
+
+  const uploaded = (await handleApiRequest(
+    new Request('https://site.test/api/media', {
+      method: 'POST',
+      headers: { cookie, 'X-Requested-With': 'VaalAuras', 'Content-Type': 'video/mp4' },
+      body: mp4Bytes,
+    }),
+    e
+  ))!;
+  assert.equal(uploaded.status, 201);
+  const meta = await uploaded.json();
+  assert.equal(meta.mediaType, 'video');
+  assert.match(meta.url, /^\/api\/media\/med-[a-f0-9]+\.mp4$/);
+
+  const full = (await handleApiRequest(new Request('https://site.test' + meta.url), e))!;
+  assert.equal(full.status, 200);
+  assert.equal(full.headers.get('content-type'), 'video/mp4');
+  assert.equal(full.headers.get('accept-ranges'), 'bytes');
+  assert.deepEqual(new Uint8Array(await full.arrayBuffer()), mp4Bytes);
+
+  const partial = (await handleApiRequest(
+    new Request('https://site.test' + meta.url, { headers: { Range: 'bytes=4-7' } }),
+    e
+  ))!;
+  assert.equal(partial.status, 206);
+  assert.equal(partial.headers.get('content-range'), `bytes 4-7/${mp4Bytes.byteLength}`);
+  assert.deepEqual(new Uint8Array(await partial.arrayBuffer()), mp4Bytes.subarray(4, 8));
+});
