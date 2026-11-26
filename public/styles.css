@@ -1160,7 +1160,7 @@ code {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *:not(.section-showcase):not(.showcase-dot):not(.showcase-arrow),
+  *:not(.section-showcase):not(.showcase-dot):not(.showcase-arrow):not(.showcase-zoom-hint):not(.lightbox-backdrop):not(.lightbox-stage):not(.lightbox-close):not(.lightbox-nav),
   *::before,
   *::after {
     transition: none !important;
@@ -1449,7 +1449,44 @@ body::after {
   overflow: hidden;
   background: #110e10;
   box-shadow: 0 25px 65px rgba(0,0,0,.35);
+  cursor: zoom-in;
   transition: height 480ms cubic-bezier(0.16, 1, 0.3, 1), border-color 320ms ease, box-shadow 420ms ease;
+}
+.showcase-carousel .section-showcase:hover,
+.showcase-carousel .section-showcase:focus-visible {
+  border-color: rgba(233, 180, 118, 0.72);
+  box-shadow: 0 28px 72px rgba(0, 0, 0, 0.48), 0 0 26px rgba(212, 138, 69, 0.16);
+}
+.showcase-zoom-hint {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 4;
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  border: 1px solid rgba(214, 159, 98, 0.55);
+  background: rgba(14, 10, 11, 0.78);
+  color: #f4d6ad;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transform: scale(0.9);
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  transition: opacity 220ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.showcase-zoom-hint svg {
+  width: 16px;
+  height: 16px;
+}
+.showcase-carousel .section-showcase:hover .showcase-zoom-hint,
+.showcase-carousel .section-showcase:focus-visible .showcase-zoom-hint {
+  opacity: 1;
+  transform: scale(1);
+}
+.feature-media-img {
+  cursor: zoom-in;
 }
 .showcase-carousel .section-showcase::after {
   content: "";
@@ -1692,4 +1729,182 @@ body::after {
     radial-gradient(circle at 50% 44%, rgba(205, 118, 71, 0.17) 0%, rgba(155, 59, 45, 0.08) 26%, transparent 66%),
     radial-gradient(circle at 50% 55%, rgba(116, 35, 37, 0.10) 0%, transparent 72%);
   opacity: .65;
+}
+
+/* Maximized screenshot lightbox */
+.screenshot-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: grid;
+  place-items: center;
+  padding: clamp(18px, 3.5vw, 44px);
+}
+.screenshot-lightbox.hidden {
+  display: none !important;
+}
+.lightbox-backdrop {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 45%, rgba(28, 16, 16, 0.88), rgba(6, 5, 6, 0.94));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  opacity: 0;
+  transition: opacity 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.screenshot-lightbox.is-open .lightbox-backdrop {
+  opacity: 1;
+}
+.screenshot-lightbox.is-closing .lightbox-backdrop {
+  opacity: 0;
+  transition-duration: 280ms;
+}
+.lightbox-close {
+  position: fixed;
+  top: 20px;
+  right: 24px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 6px;
+  border: 1px solid #8a6449;
+  background: linear-gradient(180deg, rgba(39, 25, 25, 0.96), rgba(19, 13, 14, 0.96));
+  color: #f4d9b5;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55), inset 0 1px rgba(246, 206, 152, 0.18);
+  opacity: 0;
+  transform: translate3d(0, -10px, 0) scale(0.92);
+  transition:
+    opacity 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease,
+    box-shadow 180ms ease;
+}
+.lightbox-close svg {
+  width: 16px;
+  height: 16px;
+}
+.screenshot-lightbox.is-open .lightbox-close {
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+}
+.screenshot-lightbox.is-closing .lightbox-close {
+  opacity: 0;
+  transform: translate3d(0, -8px, 0) scale(0.92);
+  transition-duration: 220ms;
+}
+.lightbox-close:hover {
+  border-color: #ef9b74;
+  background: linear-gradient(180deg, #5e2c26, #351918);
+  color: #fff3e1;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.65), 0 0 20px rgba(201, 98, 63, 0.32);
+}
+.lightbox-close:active {
+  transform: scale(0.95);
+}
+.lightbox-shell {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  max-width: min(94vw, 1520px);
+  max-height: 92vh;
+  pointer-events: none;
+}
+.lightbox-stage {
+  position: relative;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid rgba(226, 169, 107, 0.52);
+  background: #0c090a;
+  box-shadow: 0 36px 110px rgba(0, 0, 0, 0.88), 0 0 38px rgba(196, 114, 58, 0.18);
+  overflow: hidden;
+  transform-origin: center center;
+  will-change: transform, opacity;
+  pointer-events: auto;
+}
+.lightbox-stage::after {
+  content: "";
+  position: absolute;
+  inset: -10% -45%;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    108deg,
+    transparent 34%,
+    rgba(220, 166, 102, 0.08) 46%,
+    rgba(255, 218, 162, 0.22) 50%,
+    rgba(191, 68, 56, 0.1) 54%,
+    transparent 66%
+  );
+  transform: translate3d(-100%, 0, 0);
+  z-index: 3;
+}
+.lightbox-stage.is-switching-next::after {
+  animation: showcase-sheen-next 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.lightbox-stage.is-switching-prev::after {
+  animation: showcase-sheen-prev 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.lightbox-image {
+  position: relative;
+  z-index: 2;
+  display: block;
+  max-width: min(92vw, 1480px);
+  max-height: calc(90vh - 82px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+  will-change: transform, opacity;
+}
+.lightbox-stage img.showcase-outgoing {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.lightbox-nav {
+  pointer-events: auto;
+  opacity: 0;
+  transform: translate3d(0, 12px, 0);
+  transition: opacity 300ms cubic-bezier(0.22, 1, 0.36, 1) 60ms, transform 340ms cubic-bezier(0.22, 1, 0.36, 1) 60ms;
+}
+.screenshot-lightbox.is-open .lightbox-nav {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+.screenshot-lightbox.is-closing .lightbox-nav {
+  opacity: 0;
+  transform: translate3d(0, 10px, 0);
+  transition-delay: 0ms;
+  transition-duration: 200ms;
+}
+@media (max-width: 640px) {
+  .lightbox-close {
+    top: 12px;
+    right: 12px;
+    padding: 8px 12px;
+  }
+  .lightbox-image {
+    max-width: 96vw;
+    max-height: calc(88vh - 84px);
+  }
 }

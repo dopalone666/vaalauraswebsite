@@ -1197,6 +1197,13 @@
         mediaImg.src = feature.imageUrl;
         mediaImg.alt = feature.title ? feature.title + ' artwork' : 'Feature artwork';
         mediaImg.loading = 'lazy';
+        mediaImg.tabIndex = 0;
+        mediaImg.setAttribute('role', 'button');
+        mediaImg.setAttribute('aria-label', 'Maximize ' + (feature.title || 'feature') + ' screenshot');
+        mediaImg.addEventListener('click', function () { openLightbox(mediaImg, null); });
+        mediaImg.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLightbox(mediaImg, null); }
+        });
         media.appendChild(mediaImg);
         card.appendChild(media);
       }
@@ -1702,6 +1709,8 @@
       renderFeatureEditor();
     });
 
+    var showcaseControllers = {};
+
     [['home-hero-media', 'heroImages', 'heroImageUrl'],
      ['home-feature-media', 'featureSectionImages', 'featureSectionImageUrl']].forEach(function (cfg) {
       var prefix = cfg[0];
@@ -1825,6 +1834,14 @@
         goToIndex(current + delta, delta);
       }
 
+      showcaseControllers[prefix] = {
+        prefix: prefix,
+        arrayKey: arrayKey,
+        legacyKey: legacyKey,
+        step: step,
+        goToIndex: goToIndex
+      };
+
       el(prefix + '-prev').addEventListener('click', function () { step(-1); });
       el(prefix + '-next').addEventListener('click', function () { step(1); });
       var dotsEl = el(prefix + '-dots');
@@ -1846,6 +1863,7 @@
       var swipeStartX = 0;
       var swipeStartY = 0;
       var swipeActive = false;
+      var swipeDragged = false;
       var frameEl = el(prefix).querySelector('.section-showcase');
       if (frameEl) {
         frameEl.addEventListener('pointerdown', function (e) {
@@ -1853,6 +1871,13 @@
           swipeStartX = e.clientX;
           swipeStartY = e.clientY;
           swipeActive = true;
+          swipeDragged = false;
+        });
+        frameEl.addEventListener('pointermove', function (e) {
+          if (!swipeActive) return;
+          if (Math.abs(e.clientX - swipeStartX) > 10 || Math.abs(e.clientY - swipeStartY) > 10) {
+            swipeDragged = true;
+          }
         });
         frameEl.addEventListener('pointerup', function (e) {
           if (!swipeActive) return;
@@ -1860,12 +1885,35 @@
           var dx = e.clientX - swipeStartX;
           var dy = e.clientY - swipeStartY;
           if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+            swipeDragged = true;
             step(dx < 0 ? 1 : -1);
           }
         });
         frameEl.addEventListener('pointercancel', function () { swipeActive = false; });
+        frameEl.addEventListener('click', function () {
+          if (swipeDragged) {
+            swipeDragged = false;
+            return;
+          }
+          var imgEl = el(prefix + '-image');
+          if (imgEl && imgEl.getAttribute('src')) {
+            openLightbox(imgEl, showcaseControllers[prefix]);
+          }
+        });
+        frameEl.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            var imgEl = el(prefix + '-image');
+            if (imgEl && imgEl.getAttribute('src')) {
+              openLightbox(imgEl, showcaseControllers[prefix]);
+            }
+          }
+        });
       }
     });
+
+    wireLightboxEvents(showcaseControllers);
 
     // Guide events
     el('btn-new-guide').addEventListener('click', function () {
@@ -1972,7 +2020,7 @@
     window.addEventListener('wheel', function (e) {
       if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
       if (!e.deltaY) return;
-      if (document.querySelector('dialog[open]')) return;
+      if (lightboxState.open || document.querySelector('dialog[open]')) return;
       if (findScrollableAncestor(e.target, e.deltaY)) return;
 
       var delta = e.deltaY;
@@ -2009,6 +2057,275 @@
         stopSmoothScroll();
       }
     }, { passive: true });
+  }
+
+  var lightboxState = {
+    open: false,
+    closing: false,
+    sourceEl: null,
+    controller: null,
+    activeAnim: null,
+    closeTimer: 0,
+    switchToken: 0,
+    sheenTimer: 0
+  };
+
+  function getLightboxFlipTransform(sourceEl, stageEl) {
+    if (!sourceEl || !stageEl || !document.body.contains(sourceEl)) return null;
+    var src = sourceEl.getBoundingClientRect();
+    var dst = stageEl.getBoundingClientRect();
+    if (!src.width || !src.height || !dst.width || !dst.height) return null;
+    if (src.bottom < 0 || src.top > window.innerHeight) return null;
+    var srcCx = src.left + src.width / 2;
+    var srcCy = src.top + src.height / 2;
+    var dstCx = dst.left + dst.width / 2;
+    var dstCy = dst.top + dst.height / 2;
+    var sx = Math.max(0.15, Math.min(1.5, src.width / dst.width));
+    var sy = Math.max(0.15, Math.min(1.5, src.height / dst.height));
+    return 'translate3d(' + Math.round(srcCx - dstCx) + 'px, ' + Math.round(srcCy - dstCy) + 'px, 0) scale(' + sx.toFixed(4) + ', ' + sy.toFixed(4) + ')';
+  }
+
+  function renderLightboxNav() {
+    var nav = el('lightbox-nav');
+    var dots = el('lightbox-dots');
+    var counter = el('lightbox-counter');
+    var ctrl = lightboxState.controller;
+    if (!nav || !ctrl) {
+      if (nav) show(nav, false);
+      return;
+    }
+    var home = Object.assign({}, DEFAULT_HOME, currentSite().home || {});
+    var images = getShowcaseImages(home, ctrl.arrayKey, ctrl.legacyKey);
+    if (images.length <= 1) {
+      show(nav, false);
+      if (dots) dots.replaceChildren();
+      return;
+    }
+    var idx = state.showcaseIndices[ctrl.arrayKey] || 0;
+    if (idx < 0 || idx >= images.length) idx = 0;
+    if (counter) counter.textContent = (idx + 1) + ' / ' + images.length;
+    if (dots) {
+      dots.replaceChildren();
+      images.forEach(function (_src, dotIndex) {
+        var dot = document.createElement('button');
+        dot.type = 'button';
+        dot.className = 'showcase-dot' + (dotIndex === idx ? ' is-active' : '');
+        dot.setAttribute('aria-label', 'Show screenshot ' + (dotIndex + 1));
+        dot.setAttribute('aria-pressed', dotIndex === idx ? 'true' : 'false');
+        dot.dataset.index = String(dotIndex);
+        dots.appendChild(dot);
+      });
+    }
+    show(nav, true);
+  }
+
+  function animateLightboxSlide(nextSrc, nextIndex, total, delta) {
+    var stage = el('lightbox-stage');
+    var image = el('lightbox-image');
+    var counter = el('lightbox-counter');
+    var dots = el('lightbox-dots');
+    if (!stage || !image) return;
+    if (counter) counter.textContent = (nextIndex + 1) + ' / ' + total;
+    if (dots) {
+      var btns = dots.querySelectorAll('.showcase-dot');
+      for (var i = 0; i < btns.length; i += 1) {
+        var active = i === nextIndex;
+        btns[i].classList.toggle('is-active', active);
+        btns[i].setAttribute('aria-pressed', active ? 'true' : 'false');
+      }
+    }
+
+    var myToken = ++lightboxState.switchToken;
+    var loader = new Image();
+    loader.decoding = 'async';
+    var done = false;
+    function finish() {
+      if (done || myToken !== lightboxState.switchToken) return;
+      done = true;
+      requestAnimationFrame(function () {
+        if (myToken !== lightboxState.switchToken) return;
+        var oldOutgoing = stage.querySelectorAll('.showcase-outgoing');
+        for (var j = 0; j < oldOutgoing.length; j += 1) oldOutgoing[j].remove();
+
+        var prevSrc = image.getAttribute('src');
+        if (prevSrc && prevSrc !== nextSrc) {
+          var outgoing = document.createElement('img');
+          outgoing.className = 'showcase-outgoing ' + (delta > 0 ? 'showcase-exit-next' : 'showcase-exit-prev');
+          outgoing.alt = '';
+          outgoing.setAttribute('aria-hidden', 'true');
+          outgoing.src = prevSrc;
+          stage.appendChild(outgoing);
+          var cleanup = function () {
+            if (outgoing.parentNode) outgoing.parentNode.removeChild(outgoing);
+          };
+          outgoing.addEventListener('animationend', cleanup, { once: true });
+          setTimeout(cleanup, 620);
+        }
+
+        image.classList.remove('showcase-enter-next', 'showcase-enter-prev');
+        stage.classList.remove('is-switching-next', 'is-switching-prev');
+        void image.offsetWidth;
+        image.src = nextSrc;
+        image.classList.add(delta > 0 ? 'showcase-enter-next' : 'showcase-enter-prev');
+        stage.classList.add(delta > 0 ? 'is-switching-next' : 'is-switching-prev');
+        clearTimeout(lightboxState.sheenTimer);
+        lightboxState.sheenTimer = setTimeout(function () {
+          stage.classList.remove('is-switching-next', 'is-switching-prev');
+        }, 640);
+      });
+    }
+    loader.onload = function () {
+      if (typeof loader.decode === 'function') loader.decode().then(finish, finish);
+      else finish();
+    };
+    loader.onerror = finish;
+    loader.src = nextSrc;
+    if (loader.complete && loader.naturalWidth > 0) {
+      if (typeof loader.decode === 'function') loader.decode().then(finish, finish);
+      else finish();
+    }
+  }
+
+  function stepLightbox(targetIndexOrDelta, isAbsolute) {
+    var ctrl = lightboxState.controller;
+    if (!ctrl || !lightboxState.open || lightboxState.closing) return;
+    var home = Object.assign({}, DEFAULT_HOME, currentSite().home || {});
+    var images = getShowcaseImages(home, ctrl.arrayKey, ctrl.legacyKey);
+    if (images.length <= 1) return;
+    var current = state.showcaseIndices[ctrl.arrayKey] || 0;
+    var nextIndex = isAbsolute
+      ? ((targetIndexOrDelta % images.length) + images.length) % images.length
+      : ((current + targetIndexOrDelta + images.length) % images.length);
+    if (nextIndex === current) return;
+    var delta = isAbsolute ? (nextIndex > current ? 1 : -1) : targetIndexOrDelta;
+    ctrl.goToIndex(nextIndex, delta);
+    animateLightboxSlide(images[nextIndex], nextIndex, images.length, delta);
+  }
+
+  function openLightbox(sourceImgEl, controller) {
+    var box = el('screenshot-lightbox');
+    var stage = el('lightbox-stage');
+    var image = el('lightbox-image');
+    var closeBtn = el('lightbox-close');
+    if (!box || !stage || !image || !sourceImgEl) return;
+    if (lightboxState.open && !lightboxState.closing) return;
+
+    clearTimeout(lightboxState.closeTimer);
+    if (lightboxState.activeAnim) {
+      try { lightboxState.activeAnim.cancel(); } catch (_) {}
+      lightboxState.activeAnim = null;
+    }
+
+    stopSmoothScroll();
+    lightboxState.open = true;
+    lightboxState.closing = false;
+    lightboxState.sourceEl = sourceImgEl;
+    lightboxState.controller = controller || null;
+
+    var oldOutgoing = stage.querySelectorAll('.showcase-outgoing');
+    for (var i = 0; i < oldOutgoing.length; i += 1) oldOutgoing[i].remove();
+    image.classList.remove('showcase-enter-next', 'showcase-enter-prev');
+    stage.classList.remove('is-switching-next', 'is-switching-prev');
+
+    image.src = sourceImgEl.currentSrc || sourceImgEl.getAttribute('src') || '';
+    image.alt = sourceImgEl.alt || 'Maximized screenshot';
+    renderLightboxNav();
+
+    box.classList.remove('hidden', 'is-closing', 'is-open');
+    box.setAttribute('aria-hidden', 'false');
+    void box.offsetWidth;
+
+    var fromTransform = getLightboxFlipTransform(sourceImgEl, stage) || 'translate3d(0, 20px, 0) scale(0.84)';
+    box.classList.add('is-open');
+    if (typeof stage.animate === 'function') {
+      lightboxState.activeAnim = stage.animate(
+        [
+          { transform: fromTransform, opacity: 0.25 },
+          { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1 }
+        ],
+        { duration: 400, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'none' }
+      );
+    }
+    if (closeBtn) closeBtn.focus();
+  }
+
+  function closeLightbox() {
+    var box = el('screenshot-lightbox');
+    var stage = el('lightbox-stage');
+    if (!box || !stage || !lightboxState.open || lightboxState.closing) return;
+
+    lightboxState.closing = true;
+    box.classList.remove('is-open');
+    box.classList.add('is-closing');
+
+    if (lightboxState.activeAnim) {
+      try { lightboxState.activeAnim.cancel(); } catch (_) {}
+      lightboxState.activeAnim = null;
+    }
+
+    var toTransform = getLightboxFlipTransform(lightboxState.sourceEl, stage) || 'translate3d(0, 18px, 0) scale(0.86)';
+    var finished = false;
+    function finishClose() {
+      if (finished) return;
+      finished = true;
+      clearTimeout(lightboxState.closeTimer);
+      box.classList.add('hidden');
+      box.classList.remove('is-closing', 'is-open');
+      box.setAttribute('aria-hidden', 'true');
+      lightboxState.activeAnim = null;
+      lightboxState.open = false;
+      lightboxState.closing = false;
+      var restoreFocusEl = lightboxState.sourceEl;
+      lightboxState.sourceEl = null;
+      lightboxState.controller = null;
+      if (restoreFocusEl && document.body.contains(restoreFocusEl)) {
+        var focusTarget = restoreFocusEl.closest('.section-showcase') || restoreFocusEl;
+        if (typeof focusTarget.focus === 'function') {
+          try { focusTarget.focus({ preventScroll: true }); } catch (_) {}
+        }
+      }
+    }
+
+    if (typeof stage.animate === 'function') {
+      var anim = stage.animate(
+        [
+          { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1 },
+          { transform: toTransform, opacity: 0 }
+        ],
+        { duration: 300, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'forwards' }
+      );
+      lightboxState.activeAnim = anim;
+      anim.onfinish = finishClose;
+      lightboxState.closeTimer = setTimeout(finishClose, 340);
+    } else {
+      lightboxState.closeTimer = setTimeout(finishClose, 300);
+    }
+  }
+
+  function wireLightboxEvents() {
+    var closeBtn = el('lightbox-close');
+    var backdrop = el('lightbox-backdrop');
+    var prevBtn = el('lightbox-prev');
+    var nextBtn = el('lightbox-next');
+    var dotsEl = el('lightbox-dots');
+    if (closeBtn) closeBtn.addEventListener('click', closeLightbox);
+    if (backdrop) backdrop.addEventListener('click', closeLightbox);
+    if (prevBtn) prevBtn.addEventListener('click', function () { stepLightbox(-1, false); });
+    if (nextBtn) nextBtn.addEventListener('click', function () { stepLightbox(1, false); });
+    if (dotsEl) {
+      dotsEl.addEventListener('click', function (e) {
+        var btn = e.target && e.target.closest ? e.target.closest('.showcase-dot') : null;
+        if (!btn) return;
+        var idx = parseInt(btn.dataset.index || '', 10);
+        if (!isNaN(idx)) stepLightbox(idx, true);
+      });
+    }
+    window.addEventListener('keydown', function (e) {
+      if (!lightboxState.open) return;
+      if (e.key === 'Escape') { e.preventDefault(); closeLightbox(); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); stepLightbox(-1, false); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); stepLightbox(1, false); }
+    });
   }
 
   async function init() {

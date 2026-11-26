@@ -15,7 +15,7 @@
       href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=20261125-6" />
+    <link rel="stylesheet" href="/styles.css?v=20261125-7" />
   </head>
   <body>
     <header class="topbar">
@@ -72,7 +72,7 @@
           <div class="hero-buttons" id="hero-buttons"></div>
           <div class="hero-footnote"><span class="hero-footnote-line"></span> <span id="home-hero-footnote">BUILT FOR YOUR BUILD</span> <span class="hero-footnote-line"></span></div>
           <div id="home-hero-media" class="showcase-carousel hero-showcase hidden" tabindex="0" aria-label="Hero screenshots">
-            <figure class="section-showcase"><img id="home-hero-media-image" alt="VaalAuras hero showcase" decoding="async" /></figure>
+            <figure class="section-showcase" role="button" tabindex="0" aria-label="Maximize hero screenshot"><img id="home-hero-media-image" alt="VaalAuras hero showcase" decoding="async" /><span class="showcase-zoom-hint" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></span></figure>
             <div id="home-hero-media-nav" class="showcase-nav hidden" aria-label="Cycle hero screenshots">
               <button type="button" id="home-hero-media-prev" class="showcase-arrow" aria-label="Previous screenshot" title="Previous screenshot">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
@@ -92,7 +92,7 @@
           <h2 class="home-section-title"><span id="home-section-title"></span> <em id="home-section-highlight"></em></h2>
           <p class="home-section-intro" id="home-section-intro"></p>
           <div id="home-feature-media" class="showcase-carousel feature-showcase hidden" tabindex="0" aria-label="Feature screenshots">
-            <figure class="section-showcase"><img id="home-feature-media-image" alt="VaalAuras feature showcase" decoding="async" /></figure>
+            <figure class="section-showcase" role="button" tabindex="0" aria-label="Maximize feature screenshot"><img id="home-feature-media-image" alt="VaalAuras feature showcase" decoding="async" /><span class="showcase-zoom-hint" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></span></figure>
             <div id="home-feature-media-nav" class="showcase-nav hidden" aria-label="Cycle feature screenshots">
               <button type="button" id="home-feature-media-prev" class="showcase-arrow" aria-label="Previous screenshot" title="Previous screenshot">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
@@ -469,6 +469,30 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20261125-6"></script>
+    <!-- Screenshot lightbox -->
+    <div id="screenshot-lightbox" class="screenshot-lightbox hidden" role="dialog" aria-modal="true" aria-label="Maximized screenshot" aria-hidden="true">
+      <div id="lightbox-backdrop" class="lightbox-backdrop"></div>
+      <button type="button" id="lightbox-close" class="lightbox-close" aria-label="Close maximized screenshot">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        <span>Close</span>
+      </button>
+      <div class="lightbox-shell">
+        <figure id="lightbox-stage" class="lightbox-stage">
+          <img id="lightbox-image" class="lightbox-image" alt="Maximized screenshot" />
+        </figure>
+        <div id="lightbox-nav" class="showcase-nav lightbox-nav hidden" aria-label="Cycle maximized screenshots">
+          <button type="button" id="lightbox-prev" class="showcase-arrow" aria-label="Previous screenshot" title="Previous screenshot">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+          <div id="lightbox-dots" class="showcase-dots" aria-label="Choose screenshot"></div>
+          <span id="lightbox-counter" class="showcase-counter tabular-nums" aria-live="polite">1 / 1</span>
+          <button type="button" id="lightbox-next" class="showcase-arrow" aria-label="Next screenshot" title="Next screenshot">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/app.js?v=20261125-7"></script>
   </body>
 </html>
