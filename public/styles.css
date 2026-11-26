@@ -1160,7 +1160,7 @@ code {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
+  *:not(.section-showcase):not(.showcase-dot):not(.showcase-arrow),
   *::before,
   *::after {
     transition: none !important;
@@ -1562,19 +1562,6 @@ body::after {
   0% { opacity: 0; transform: translate3d(85%, 0, 0); }
   30% { opacity: 1; }
   100% { opacity: 0; transform: translate3d(-85%, 0, 0); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .showcase-carousel .section-showcase {
-    transition: none;
-  }
-  .showcase-enter-next,
-  .showcase-exit-next,
-  .showcase-enter-prev,
-  .showcase-exit-prev,
-  .showcase-carousel .section-showcase.is-switching-next::after,
-  .showcase-carousel .section-showcase.is-switching-prev::after {
-    animation: none;
-  }
 }
 
 .hero-showcase { width: min(100%, 740px); margin-top: 32px; }
