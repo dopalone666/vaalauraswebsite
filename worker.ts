@@ -27,6 +27,8 @@ export interface WorkerEnv {
   DEV_LOGIN_EMAIL?: string;
   DEV_LOGIN_PASSWORD?: string;
   SESSION_SIGNING_SECRET?: string;
+  GITHUB_RELEASES_TOKEN?: string;
+  GITHUB_RELEASES_REPO?: string;
   ASSETS?: AssetsBindingLike;
   CONTENT_KV?: KVNamespaceLike;
 }
@@ -40,6 +42,17 @@ const GUIDE_KV_KEY = 'content:guides:v1';
 const MEDIA_KV_PREFIX = 'media:v1:';
 const MAX_CONTENT_ITEMS = 100;
 const MAX_MEDIA_BYTES = 15 * 1024 * 1024;
+
+const DEFAULT_RELEASES_REPO = 'MayuzumiSayaka/cucky';
+const RELEASE_TAG_RE = /^v?\d+\.\d+\.\d+(?:-[a-zA-Z0-9._-]+)?$/;
+const ALLOWED_RELEASE_ASSETS = new Set([
+  'VaalAurasSetup.exe',
+  'VaalAurasSetup-linux-x86_64.sh',
+  'vaalauras-update-manifest.json',
+  'vaalauras-code-win-x64.tar.gz',
+  'vaalauras-code-linux-x64.tar.gz',
+  'vaalauras-assets.pak',
+]);
 
 const ALLOWED_MEDIA_TYPES: Record<string, { ext: string; mediaType: 'video' | 'image' }> = {
   'video/mp4': { ext: 'mp4', mediaType: 'video' },
@@ -360,6 +373,154 @@ export async function handleApiRequest(
   const method = request.method.toUpperCase();
 
   if (!pathname.startsWith('/api/')) return null;
+
+  /* ---- Private GitHub Releases Relay (stateless, zero KV usage) ---- */
+
+  if (method === 'GET' && pathname === '/api/releases/latest') {
+    const token = (env.GITHUB_RELEASES_TOKEN || '').trim();
+    if (!token) {
+      return jsonResponse({ ok: false, error: 'Release update relay is not configured yet.' }, 503);
+    }
+    const repo = (env.GITHUB_RELEASES_REPO || DEFAULT_RELEASES_REPO).trim();
+    const ghResp = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'VaalAuras-ReleaseRelay/1.0',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+    if (!ghResp.ok) {
+      return jsonResponse(
+        { ok: false, error: `Upstream release lookup failed (${ghResp.status}).` },
+        ghResp.status === 404 ? 404 : 502
+      );
+    }
+    const rel = (await ghResp.json()) as {
+      tag_name?: string;
+      name?: string;
+      body?: string;
+      published_at?: string;
+      assets?: Array<{ name?: string; size?: number; digest?: string }>;
+    };
+    const tag = String(rel.tag_name || '').trim();
+    if (!tag || !RELEASE_TAG_RE.test(tag)) {
+      return jsonResponse({ ok: false, error: 'Invalid release tag.' }, 502);
+    }
+    const origin = url.origin;
+    const assets = (Array.isArray(rel.assets) ? rel.assets : [])
+      .filter((a) => typeof a?.name === 'string' && ALLOWED_RELEASE_ASSETS.has(a.name))
+      .map((a) => ({
+        name: a.name!,
+        size: Number(a.size || 0),
+        digest: typeof a.digest === 'string' ? a.digest : '',
+        downloadUrl: `${origin}/api/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(a.name!)}`,
+      }));
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        version: tag.replace(/^v/i, ''),
+        tag,
+        name: String(rel.name || `VaalAuras ${tag}`),
+        publishedAt: String(rel.published_at || ''),
+        notes: String(rel.body || ''),
+        assets,
+      }),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'public, max-age=120',
+        },
+      }
+    );
+  }
+
+  const releaseDlMatch = pathname.match(/^\/api\/releases\/download\/([^/]+)\/([^/]+)$/);
+  if (releaseDlMatch && (method === 'GET' || method === 'HEAD')) {
+    const token = (env.GITHUB_RELEASES_TOKEN || '').trim();
+    if (!token) {
+      return jsonResponse({ ok: false, error: 'Release download relay is not configured yet.' }, 503);
+    }
+    let tag: string;
+    let assetName: string;
+    try {
+      tag = decodeURIComponent(releaseDlMatch[1]);
+      assetName = decodeURIComponent(releaseDlMatch[2]);
+    } catch {
+      return jsonResponse({ ok: false, error: 'Invalid release download path.' }, 400);
+    }
+    if (!RELEASE_TAG_RE.test(tag) || !ALLOWED_RELEASE_ASSETS.has(assetName)) {
+      return jsonResponse({ ok: false, error: 'Asset not allowed.' }, 404);
+    }
+
+    const repo = (env.GITHUB_RELEASES_REPO || DEFAULT_RELEASES_REPO).trim();
+    const ghHeaders = {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'VaalAuras-ReleaseRelay/1.0',
+      'X-GitHub-Api-Version': '2022-11-28',
+    };
+    const relResp = await fetch(
+      `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`,
+      { headers: ghHeaders }
+    );
+    if (!relResp.ok) {
+      return jsonResponse({ ok: false, error: 'Release not found.' }, relResp.status === 404 ? 404 : 502);
+    }
+    const rel = (await relResp.json()) as {
+      assets?: Array<{ name?: string; url?: string; content_type?: string; size?: number }>;
+    };
+    const asset = (Array.isArray(rel.assets) ? rel.assets : []).find((a) => a?.name === assetName);
+    if (!asset?.url) {
+      return jsonResponse({ ok: false, error: 'Release asset not found.' }, 404);
+    }
+
+    // Request signed S3 redirect from GitHub API without forwarding Authorization to S3.
+    const assetApiResp = await fetch(asset.url, {
+      method: 'GET',
+      redirect: 'manual',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/octet-stream',
+        'User-Agent': 'VaalAuras-ReleaseRelay/1.0',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+
+    let binaryResp: Response;
+    const redirectLocation = assetApiResp.headers.get('location');
+    if (assetApiResp.status >= 300 && assetApiResp.status < 400 && redirectLocation) {
+      binaryResp = await fetch(redirectLocation, {
+        method,
+        headers: { 'User-Agent': 'VaalAuras-ReleaseRelay/1.0' },
+      });
+    } else if (assetApiResp.ok) {
+      binaryResp = assetApiResp;
+    } else {
+      return jsonResponse({ ok: false, error: `Asset download failed (${assetApiResp.status}).` }, 502);
+    }
+
+    if (!binaryResp.ok) {
+      return jsonResponse({ ok: false, error: `Asset storage fetch failed (${binaryResp.status}).` }, 502);
+    }
+
+    const outHeaders = new Headers({
+      'Content-Type': asset.content_type || binaryResp.headers.get('content-type') || 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="${assetName}"`,
+      'Cache-Control': 'public, max-age=300',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    const contentLength = binaryResp.headers.get('content-length') || (asset.size ? String(asset.size) : '');
+    if (contentLength) {
+      outHeaders.set('Content-Length', contentLength);
+    }
+    return new Response(method === 'HEAD' ? null : binaryResp.body, {
+      status: 200,
+      headers: outHeaders,
+    });
+  }
 
   /* ---- Auth: developer login only ---- */
 
