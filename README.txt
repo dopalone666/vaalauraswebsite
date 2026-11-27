@@ -33,5 +33,5 @@ which unlocks editing of the Home page, Guide and Changelog right on the site.
    - Guide / Changelog: the same "New Article" / "New Changelog Post" and edit buttons as before.
    - Visitors only see buttons that have a link. Set your Download link in "Edit page".
 
-Local dev: copy .env.example to .dev.vars, fill it in, run `npm run dev`.
+Local dev: copy env.example to .dev.vars, fill it in, run `npm run dev`.
 Tests: `npm test`
