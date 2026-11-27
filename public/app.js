@@ -33,6 +33,7 @@
 
   var DEFAULT_HOME = {
     logoUrl: '/assets/vaalauras_logo.png', wordmarkUrl: '/assets/vaalauras_wordmark.png',
+    windowsDownloadUrl: '', linuxDownloadUrl: '',
     eyebrow: 'THE PATH OF EXILE OVERLAY', footnote: 'BUILT FOR YOUR BUILD',
     heroImageUrl: '', heroImages: [], featureSectionImageUrl: '', featureSectionImages: [],
     sectionKicker: 'THE EXPERIENCE', sectionTitle: 'Every moment', sectionHighlight: 'matters.',
@@ -48,6 +49,7 @@
   };
   var HOME_FIELDS = {
     logoUrl: 'home-logo-url', wordmarkUrl: 'home-wordmark-url',
+    windowsDownloadUrl: 'home-windows-download-url', linuxDownloadUrl: 'home-linux-download-url',
     footnote: 'home-footnote', sectionKicker: 'home-section-kicker-input',
     sectionTitle: 'home-section-title-input', sectionHighlight: 'home-section-highlight-input',
     sectionIntro: 'home-section-intro-input', ctaKicker: 'home-cta-kicker-input',
@@ -1157,6 +1159,36 @@
     return state.site || DEFAULT_SITE;
   }
 
+  function detectDownloadPlatform(browser) {
+    var hints = browser.userAgentData;
+    var userAgent = browser.userAgent || '';
+    if ((hints && hints.mobile) || /\b(?:Android|CrOS|iPhone|iPad|iPod)\b/i.test(userAgent)) return '';
+
+    var platform = hints && hints.platform ? hints.platform : userAgent + ' ' + (browser.platform || '');
+    if (/\b(?:Windows|Win32|Win64)\b/i.test(platform)) return 'windows';
+    if (/\bLinux\b/i.test(platform)) return 'linux';
+    return '';
+  }
+
+  function appendHomeButton(wrap, button, url, label) {
+    var hasUrl = Boolean(url) && isSafeHref(url);
+    if (!hasUrl && !isDeveloper()) return;
+    var link = document.createElement(hasUrl ? 'a' : 'span');
+    link.className = 'btn btn-xl ' + (button.style === 'secondary' ? 'btn-secondary-cta' : 'btn-cta');
+    link.textContent = label;
+    if (hasUrl) {
+      link.href = url;
+      if (/^https?:\/\//i.test(url)) {
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+      }
+    } else {
+      link.classList.add('is-unset');
+      link.title = 'No link set yet. Use Edit page to add one.';
+    }
+    wrap.appendChild(link);
+  }
+
   function renderSocials() {
     var s = currentSite().socials || DEFAULT_SITE.socials;
     var map = { patreon: 'social-patreon', twitch: 'social-twitch', discord: 'social-discord' };
@@ -1328,24 +1360,28 @@
 
     var wrap = el('hero-buttons');
     wrap.textContent = '';
-    (site.buttons || []).forEach(function (b) {
-      var hasUrl = Boolean(b.url) && isSafeHref(b.url);
-      // Visitors only see buttons that have a link; the developer sees all (to finish setting them up).
-      if (!hasUrl && !isDeveloper()) return;
-      var a = document.createElement(hasUrl ? 'a' : 'span');
-      a.className = 'btn btn-xl ' + (b.style === 'secondary' ? 'btn-secondary-cta' : 'btn-cta');
-      a.textContent = b.label;
-      if (hasUrl) {
-        a.href = b.url;
-        if (/^https?:\/\//i.test(b.url)) {
-          a.target = '_blank';
-          a.rel = 'noopener noreferrer';
+    var platform = detectDownloadPlatform(navigator);
+    var downloads = [
+      { platform: 'windows', name: 'Windows 11', url: home.windowsDownloadUrl },
+      { platform: 'linux', name: 'Linux', url: home.linuxDownloadUrl },
+    ].filter(function (download) {
+      return typeof download.url === 'string' && isSafeHref(download.url);
+    });
+    (site.buttons || []).forEach(function (button, index) {
+      if (index === 0) {
+        var match = downloads.find(function (download) { return download.platform === platform; });
+        if (match) {
+          appendHomeButton(wrap, button, match.url, button.label);
+          return;
         }
-      } else {
-        a.classList.add('is-unset');
-        a.title = 'No link set yet. Use Edit page to add one.';
+        if (downloads.length && (!button.url || !isSafeHref(button.url))) {
+          downloads.forEach(function (download) {
+            appendHomeButton(wrap, button, download.url, button.label + ' (' + download.name + ')');
+          });
+          return;
+        }
       }
-      wrap.appendChild(a);
+      appendHomeButton(wrap, button, button.url, button.label);
     });
 
     renderSocials();
@@ -1376,9 +1412,9 @@
       var url = document.createElement('input');
       url.type = 'text';
       url.className = 'text-input';
-      url.placeholder = 'https://...';
+      url.placeholder = idx === 0 ? 'Fallback link (optional)' : 'https://...';
       url.value = b.url;
-      url.setAttribute('aria-label', 'Button link');
+      url.setAttribute('aria-label', idx === 0 ? 'Download fallback link' : 'Button link');
       url.addEventListener('input', function () {
         b.url = url.value;
       });

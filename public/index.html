@@ -179,10 +179,22 @@
             <div class="field-group"><label for="home-cta-description-input" class="field-label">Description</label><textarea id="home-cta-description-input" class="text-input textarea-input" maxlength="800" rows="3"></textarea></div>
             <div class="form-grid-2"><div class="field-group"><label for="home-guide-label-input" class="field-label">Guide button text</label><input id="home-guide-label-input" class="text-input" maxlength="180" /></div><div class="field-group"><label for="home-changelog-label-input" class="field-label">Changelog button text</label><input id="home-changelog-label-input" class="text-input" maxlength="180" /></div></div>
             <div class="field-group">
-              <span class="field-label">Buttons (first one is the main Download button)</span>
+              <span class="field-label">Buttons (the first is the main Download button)</span>
               <div id="home-buttons-editor" class="btn-editor-list"></div>
               <button type="button" id="btn-add-home-button" class="btn btn-outline btn-sm">+ Add button</button>
             </div>
+
+            <div class="form-grid-2">
+              <div class="field-group">
+                <label for="home-windows-download-url" class="field-label">Windows 11 download link</label>
+                <input id="home-windows-download-url" class="text-input" maxlength="2048" placeholder="https://... or /api/releases/download/..." />
+              </div>
+              <div class="field-group">
+                <label for="home-linux-download-url" class="field-label">Linux download link</label>
+                <input id="home-linux-download-url" class="text-input" maxlength="2048" placeholder="https://... or /api/releases/download/..." />
+              </div>
+            </div>
+            <p class="field-hint">The first button uses the visitor’s OS link when available. Its regular link serves as the fallback.</p>
 
             <div class="field-group">
               <span class="field-label">Social buttons (top bar)</span>
@@ -495,6 +507,6 @@
     </div>
 
     <script src="/eye-animation.js?v=20261127-2"></script>
-    <script src="/app.js?v=20261127-1"></script>
+    <script src="/app.js?v=20261127-2"></script>
   </body>
 </html>

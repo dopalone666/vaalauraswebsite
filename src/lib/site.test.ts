@@ -52,6 +52,24 @@ test('validateSiteInput accepts buttons, keeps order, rejects bad links', () => 
 });
 
 
+test('platform download links are optional and validated as URLs', () => {
+  const existing = validateSiteInput({ title: 'VaalAuras' }, id);
+  assert.equal(existing.ok, true);
+  if (existing.ok) {
+    assert.equal(existing.data.home.windowsDownloadUrl, '');
+    assert.equal(existing.data.home.linuxDownloadUrl, '');
+  }
+
+  const longUrl = `https://example.com/download?token=${'a'.repeat(250)}`;
+  const configured = validateSiteInput({ title: 'VaalAuras', home: { windowsDownloadUrl: ` ${longUrl} ` } }, id);
+  assert.equal(configured.ok, true);
+  if (configured.ok) assert.equal(configured.data.home.windowsDownloadUrl, longUrl);
+
+  for (const field of ['windowsDownloadUrl', 'linuxDownloadUrl']) {
+    assert.equal(validateSiteInput({ title: 'VaalAuras', home: { [field]: 'javascript:alert(1)' } }, id).ok, false);
+  }
+});
+
 test('footer is plain text, optional, and length-limited', () => {
   const empty = validateSiteInput({ title: 'VaalAuras' }, id);
   assert.equal(empty.ok, true);

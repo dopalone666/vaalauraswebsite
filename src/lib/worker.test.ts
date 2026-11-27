@@ -65,6 +65,10 @@ test('only the developer can edit the site; public can read', async () => {
   const body = JSON.stringify({
     title: 'T',
     headline: 'H',
+    home: {
+      windowsDownloadUrl: 'https://example.com/windows.zip',
+      linuxDownloadUrl: '/api/releases/download/v1/linux.tar.gz',
+    },
     buttons: [{ label: 'Download', url: 'https://example.com/a.zip', style: 'primary' }],
   });
 
@@ -79,6 +83,8 @@ test('only the developer can edit the site; public can read', async () => {
   const data = await pub.json();
   assert.equal(data.site.title, 'T');
   assert.equal(data.site.buttons[0].url, 'https://example.com/a.zip');
+  assert.equal(data.site.home.windowsDownloadUrl, 'https://example.com/windows.zip');
+  assert.equal(data.site.home.linuxDownloadUrl, '/api/releases/download/v1/linux.tar.gz');
 });
 
 test('mutations without the custom header are blocked even with a valid cookie', async () => {

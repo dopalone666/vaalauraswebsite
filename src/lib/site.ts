@@ -9,6 +9,8 @@ export const DEFAULT_SOCIALS = {
 export const DEFAULT_HOME: HomeContent = {
   logoUrl: '/assets/vaalauras_logo.png',
   wordmarkUrl: '/assets/vaalauras_wordmark.png',
+  windowsDownloadUrl: '',
+  linuxDownloadUrl: '',
   eyebrow: 'THE PATH OF EXILE OVERLAY',
   footnote: 'BUILT FOR YOUR BUILD',
   heroImageUrl: '',
@@ -94,6 +96,8 @@ export function validateSiteInput(
       key === 'features' ||
       key === 'logoUrl' ||
       key === 'wordmarkUrl' ||
+      key === 'windowsDownloadUrl' ||
+      key === 'linuxDownloadUrl' ||
       key === 'heroImageUrl' ||
       key === 'heroImages' ||
       key === 'featureSectionImageUrl' ||
@@ -106,6 +110,15 @@ export function validateSiteInput(
     const normalized = normalizeLinkUrl(value);
     if (value && !normalized) return { ok: false, error: `Invalid ${key} image URL.` };
     home[key] = normalized || DEFAULT_HOME[key];
+  }
+  for (const [key, platform] of [
+    ['windowsDownloadUrl', 'Windows 11'],
+    ['linuxDownloadUrl', 'Linux'],
+  ] as const) {
+    const value = typeof rawHome[key] === 'string' ? rawHome[key].trim() : '';
+    const normalized = normalizeLinkUrl(value);
+    if (value && !normalized) return { ok: false, error: `Invalid ${platform} download link.` };
+    home[key] = normalized || '';
   }
   for (const [singleKey, arrayKey] of [
     ['heroImageUrl', 'heroImages'],

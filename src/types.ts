@@ -49,6 +49,8 @@ export interface HomeFeature {
 export interface HomeContent {
   logoUrl: string;
   wordmarkUrl: string;
+  windowsDownloadUrl: string;
+  linuxDownloadUrl: string;
   eyebrow: string;
   footnote: string;
   heroImageUrl: string;
