@@ -104,6 +104,8 @@ code {
   text-decoration: none;
   white-space: nowrap;
   flex-shrink: 0;
+  /* Match the artwork's visible midpoint to the navigation buttons. */
+  transform: translateY(0.5px);
 }
 
 .brand-wordmark-img {
@@ -114,7 +116,7 @@ code {
   display: block;
   flex-shrink: 0;
   /* Align the letters with the logo's center, accounting for the drips below. */
-  transform: translateY(18%);
+  transform: translateY(19%);
   filter: brightness(1.16) drop-shadow(0 1px 6px rgba(212, 162, 87, 0.14));
 }
 
