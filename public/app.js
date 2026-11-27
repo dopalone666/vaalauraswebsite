@@ -1130,6 +1130,7 @@
     show(el('view-home'), valid === 'home');
     show(el('view-guide'), valid === 'guide');
     show(el('view-changelog'), valid === 'changelog');
+    if (window.VaalEye && typeof window.VaalEye.refresh === 'function') window.VaalEye.refresh();
 
     if (updateHash !== false) {
       var nextHash = '#' + valid;
@@ -1172,7 +1173,8 @@
     heroLogo.src = isSafeHref(home.logoUrl) ? home.logoUrl : DEFAULT_HOME.logoUrl;
     var heroWordmark = el('hero-title').querySelector('img');
     heroWordmark.src = isSafeHref(home.wordmarkUrl) ? home.wordmarkUrl : DEFAULT_HOME.wordmarkUrl;
-    document.querySelectorAll('.brand-logo, .footer-brand img').forEach(function (img) { img.src = heroLogo.src; });
+    document.querySelectorAll('img.brand-logo, .footer-brand img').forEach(function (img) { img.src = heroLogo.src; });
+    if (window.VaalEye && typeof window.VaalEye.refresh === 'function') window.VaalEye.refresh();
     document.querySelectorAll('.brand-wordmark-img').forEach(function (img) { img.src = heroWordmark.src; });
     var mapped = {
       footnote: 'home-hero-footnote',

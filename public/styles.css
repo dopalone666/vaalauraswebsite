@@ -1965,3 +1965,22 @@ video.lightbox-image {
     max-height: calc(88vh - 84px);
   }
 }
+
+/* Animated VaalAuras emblem eye canvases */
+.vaal-eye-source-hidden {
+  display: none !important;
+}
+canvas.vaal-eye-canvas {
+  display: block;
+  flex-shrink: 0;
+}
+.footer-brand canvas.footer-logo-canvas {
+  width: 32px;
+  height: 32px;
+  filter: drop-shadow(0 0 9px #8f3e32aa);
+}
+@media (prefers-reduced-motion: reduce) {
+  canvas.hero-logo.vaal-eye-canvas {
+    animation: none;
+  }
+}
