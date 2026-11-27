@@ -454,20 +454,12 @@
   /* Per-emblem controller (matches EyeAnimationController in Python)    */
   /* ------------------------------------------------------------------ */
 
-  var reducedMotionQuery = window.matchMedia
-    ? window.matchMedia('(prefers-reduced-motion: reduce)')
-    : null;
-
-  function prefersReducedMotion() {
-    return Boolean(reducedMotionQuery && reducedMotionQuery.matches);
-  }
-
   var instances = [];
   var pointer = { active: false, x: 0, y: 0 };
   var rafId = 0;
 
   function scheduleFrame() {
-    if (rafId || document.hidden || prefersReducedMotion()) return;
+    if (rafId || document.hidden) return;
     rafId = window.requestAnimationFrame(tickAll);
   }
 
@@ -586,7 +578,7 @@
   };
 
   EyeInstance.prototype.updatePointer = function () {
-    if (!this.mounted || prefersReducedMotion()) {
+    if (!this.mounted) {
       this.pointerDx = 0;
       this.pointerDy = 0;
       return;
@@ -634,7 +626,7 @@
     var delayMs = Math.max(250, Math.round(randRange(BLINK_INTERVAL_MIN, BLINK_INTERVAL_MAX) * 1000));
     this.blinkTimer = window.setTimeout(function () {
       self.blinkTimer = 0;
-      if (!prefersReducedMotion() && !document.hidden && self.mode === 'idle' && self._isVisible()) {
+      if (!document.hidden && self.mode === 'idle' && self._isVisible()) {
         self.triggerBlink();
       }
       self._scheduleNextBlink();
@@ -647,7 +639,7 @@
     var delayMs = Math.max(1000, Math.round(randRange(TWITCH_INTERVAL_MIN, TWITCH_INTERVAL_MAX) * 1000));
     this.twitchTimer = window.setTimeout(function () {
       self.twitchTimer = 0;
-      if (!prefersReducedMotion() && !document.hidden && self.mode === 'idle' && self._isVisible()) {
+      if (!document.hidden && self.mode === 'idle' && self._isVisible()) {
         self.triggerTwitchLock();
       }
       self._scheduleNextTwitch();
@@ -655,7 +647,7 @@
   };
 
   EyeInstance.prototype.triggerBlink = function () {
-    if (prefersReducedMotion() || this.mode === 'twitch_lock' || !this.source) return;
+    if (this.mode === 'twitch_lock' || !this.source) return;
     if (this.stareTimer) {
       window.clearTimeout(this.stareTimer);
       this.stareTimer = 0;
@@ -667,7 +659,7 @@
   };
 
   EyeInstance.prototype.triggerTwitchLock = function () {
-    if (prefersReducedMotion() || !this.source) return;
+    if (!this.source) return;
     if (this.stareTimer) {
       window.clearTimeout(this.stareTimer);
       this.stareTimer = 0;
@@ -685,13 +677,6 @@
 
   EyeInstance.prototype.renderAt = function (nowMs) {
     if (!this.source || !this.ctx || !this.patchImageData || !this.mounted) return false;
-
-    if (prefersReducedMotion()) {
-      this.mode = 'idle';
-      this._emit(0, 0, 0);
-      this.dirty = false;
-      return false;
-    }
 
     var dx = this.pointerDx;
     var dy = this.pointerDy;
@@ -778,7 +763,7 @@
         if (inst.renderAt(nowMs)) keepGoing = true;
       }
     }
-    if (keepGoing && !document.hidden && !prefersReducedMotion()) {
+    if (keepGoing && !document.hidden) {
       rafId = window.requestAnimationFrame(tickAll);
     }
   }
@@ -840,16 +825,6 @@
         scheduleFrame();
       }
     });
-
-    if (reducedMotionQuery && typeof reducedMotionQuery.addEventListener === 'function') {
-      reducedMotionQuery.addEventListener('change', function () {
-        for (var i = 0; i < instances.length; i++) {
-          instances[i].mode = 'idle';
-          instances[i].dirty = true;
-        }
-        tickAll(performance.now());
-      });
-    }
   }
 
   function refresh() {
