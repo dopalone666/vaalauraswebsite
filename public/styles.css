@@ -856,8 +856,8 @@ code {
   object-fit: contain;
   display: block;
   flex-shrink: 0;
-  /* Center the eye on the same line as the wordmark. */
-  transform: translateY(2%);
+  /* Align the eye with the center of the wordmark's full letter height. */
+  transform: translateY(-8%);
 }
 
 /* Top bar actions: social buttons + sign in */
