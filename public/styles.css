@@ -113,7 +113,8 @@ code {
   object-fit: contain;
   display: block;
   flex-shrink: 0;
-  transform: translateY(3px);
+  /* Align the letters with the logo's center, accounting for the drips below. */
+  transform: translateY(18%);
   filter: brightness(1.16) drop-shadow(0 1px 6px rgba(212, 162, 87, 0.14));
 }
 
@@ -1124,7 +1125,6 @@ code {
 
   .brand-wordmark-img {
     height: 31px;
-    transform: translateY(2px);
   }
 
   .topbar-nav {
