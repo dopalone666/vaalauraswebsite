@@ -472,6 +472,22 @@
     wrap.appendChild(iframe);
     return wrap;
   }
+  function appendGuideText(container, text) {
+    var imageTag = /\[img\][ \t]*(https:\/\/i\.imgur\.com\/[a-z0-9]+\.(?:png|jpe?g|gif|webp|avif)(?:\?[^\s\[\]<>]*)?)[ \t]*\[\/img\]/gi;
+    text.split(imageTag).forEach(function (part, index) {
+      if (index % 2 === 0) {
+        if (part) container.append(part);
+        return;
+      }
+      var image = document.createElement('img');
+      image.loading = 'lazy';
+      image.decoding = 'async';
+      image.alt = 'Guide image';
+      image.src = part;
+      container.appendChild(image);
+    });
+  }
+
   function renderRichBody(container, rawBody, embedVideos) {
     var lines = String(rawBody || '').split(/\r?\n/);
     var currentUl = null;
@@ -502,7 +518,7 @@
       if (/^#{1,3}\s+/.test(trimmed)) {
         flushUl();
         var heading = document.createElement('h3');
-        heading.textContent = trimmed.replace(/^#{1,3}\s+/, '');
+        appendGuideText(heading, trimmed.replace(/^#{1,3}\s+/, ''));
         container.appendChild(heading);
         continue;
       }
@@ -512,14 +528,14 @@
           currentUl = document.createElement('ul');
         }
         var li = document.createElement('li');
-        li.textContent = trimmed.replace(/^[-*]\s+/, '');
+        appendGuideText(li, trimmed.replace(/^[-*]\s+/, ''));
         currentUl.appendChild(li);
         continue;
       }
 
       flushUl();
       var p = document.createElement('p');
-      p.textContent = trimmed;
+      appendGuideText(p, trimmed);
       container.appendChild(p);
     }
 

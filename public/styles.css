@@ -653,6 +653,12 @@ code {
   max-width: 72ch;
 }
 
+.rich-article img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
 .rich-article h3 {
   margin: 24px 0 10px;
   padding-top: 16px;
