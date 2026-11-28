@@ -14,7 +14,7 @@
     showcaseIndices: { heroImages: 0, featureSectionImages: 0 },
 
     // Changelog state
-    changelogs: [],
+    changelogs: null,
     changelogStorageReady: true,
     activeChangelogCategory: 'All',
     expandedChangelogIds: {},
@@ -22,7 +22,7 @@
     changelogEditorOpen: false,
 
     // Guide state
-    guides: [],
+    guides: null,
     guideStorageReady: true,
     activeGuideTopic: 'All',
     guideSearchQuery: '',
@@ -30,6 +30,8 @@
     editingGuideId: null,
     guideEditorOpen: false,
   };
+
+  var contentLoading = {};
 
   var DEFAULT_HOME = {
     logoUrl: '/assets/vaalauras_logo.png', wordmarkUrl: '/assets/vaalauras_wordmark.png',
@@ -632,7 +634,7 @@
 
   function renderGuideView() {
     var dev = isDeveloper();
-    show(el('btn-new-guide'), dev);
+    show(el('btn-new-guide'), dev && Boolean(state.guides));
     show(el('guide-kv-warning'), dev && !state.guideStorageReady);
     if (!dev && state.guideEditorOpen) {
       closeGuideEditor();
@@ -641,7 +643,7 @@
     var topicFiltersEl = el('guide-topic-filters');
     var sidebarListEl = el('guide-sidebar-list');
     var readerEl = el('guide-reader');
-    if (!topicFiltersEl || !sidebarListEl || !readerEl) return;
+    if (!state.guides || !topicFiltersEl || !sidebarListEl || !readerEl) return;
 
     var topics = ['All'];
     var seenTopic = { All: 1 };
@@ -931,7 +933,7 @@
 
   function renderChangelogView() {
     var dev = isDeveloper();
-    show(el('btn-new-changelog'), dev);
+    show(el('btn-new-changelog'), dev && Boolean(state.changelogs));
     show(el('changelog-kv-warning'), dev && !state.changelogStorageReady);
     if (!dev && state.changelogEditorOpen) {
       closeChangelogEditor();
@@ -939,7 +941,7 @@
 
     var filterEl = el('changelog-category-filters');
     var listEl = el('changelog-list');
-    if (!filterEl || !listEl) return;
+    if (!state.changelogs || !filterEl || !listEl) return;
 
     var categories = ['All'];
     var seenCat = { All: 1 };
@@ -1159,8 +1161,7 @@
       }
     }
 
-    if (valid === 'guide') renderGuideView();
-    else if (valid === 'changelog') renderChangelogView();
+    if (valid !== 'home') loadContent(valid);
 
     if (updateHash !== false && window.scrollY > 4) {
       smoothScrollTo(0);
@@ -1785,6 +1786,9 @@
     show(el('btn-signout'), dev);
     show(el('btn-edit-home'), dev);
     if (!dev) closeHomeEditor();
+    if (dev && !state.siteStorageReady) {
+      setBanner('Storage is not set up: bind a KV namespace named CONTENT_KV to the Worker so your edits can be saved.', 'warn');
+    }
     renderHome();
     if (state.activeView === 'guide') renderGuideView();
     if (state.activeView === 'changelog') renderChangelogView();
@@ -1794,7 +1798,17 @@
     setInlineFormError('dev-login-error', message);
   }
 
-  function openLoginDialog() {
+  async function openLoginDialog() {
+    var btn = el('btn-open-login');
+    btn.disabled = true;
+    await loadSession();
+    btn.disabled = false;
+    if (isDeveloper()) {
+      applyDeveloperState();
+      el('btn-signout').focus();
+      return;
+    }
+
     setLoginError('');
     var dlg = el('login-dialog');
     if (typeof dlg.showModal === 'function') dlg.showModal();
@@ -1864,21 +1878,31 @@
     }
   }
 
-  async function loadContent() {
-    try {
-      var results = await Promise.all([
-        apiJson('/api/content/changelogs'),
-        apiJson('/api/content/guides'),
-      ]);
-      if (results[0] && Array.isArray(results[0].posts)) {
-        state.changelogs = results[0].posts;
-        state.changelogStorageReady = Boolean(results[0].storageReady);
+  async function loadContent(view) {
+    var isGuide = view === 'guide';
+    var itemsKey = isGuide ? 'guides' : 'changelogs';
+    if (!state[itemsKey] && !contentLoading[view]) {
+      var statusId = isGuide ? 'guide-reader' : 'changelog-list';
+      var label = isGuide ? 'guides' : 'changelog';
+      contentLoading[view] = true;
+      setText(statusId, 'Loading ' + label + '…');
+      try {
+        var data = await apiJson('/api/content/' + itemsKey);
+        var items = data && (isGuide ? data.articles : data.posts);
+        if (!Array.isArray(items)) throw new Error('Unexpected content response.');
+        state[itemsKey] = items;
+        state[view + 'StorageReady'] = Boolean(data.storageReady);
+      } catch (_) {
+        setText(statusId, 'Could not load ' + label + '. Reopen this tab to try again.');
+        return;
+      } finally {
+        delete contentLoading[view];
       }
-      if (results[1] && Array.isArray(results[1].articles)) {
-        state.guides = results[1].articles;
-        state.guideStorageReady = Boolean(results[1].storageReady);
-      }
-    } catch (_) {}
+    }
+
+    if (state.activeView !== view) return;
+    if (isGuide) renderGuideView();
+    else renderChangelogView();
   }
 
   function wireEvents() {
@@ -2596,17 +2620,10 @@
     initSmoothScroll();
 
     var hash = window.location.hash.replace(/^#/, '').toLowerCase();
-    if (hash === 'guide' || hash === 'changelog') {
-      state.activeView = hash;
-    }
-
-    await Promise.all([loadSession(), loadSite(), loadContent()]);
-
-    if (!state.siteStorageReady && state.developer) {
-      setBanner('Storage is not set up: bind a KV namespace named CONTENT_KV to the Worker so your edits can be saved.', 'warn');
-    }
+    var siteLoad = loadSite();
+    switchView(hash, false);
+    await siteLoad;
     applyDeveloperState();
-    switchView(state.activeView, false);
   }
 
   init();
