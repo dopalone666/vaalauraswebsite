@@ -1,0 +1,46 @@
+{
+  "ok": true,
+  "version": "1.0.3",
+  "tag": "v1.0.3",
+  "name": "VaalAuras v1.0.3",
+  "publishedAt": "2026-11-28T11:50:49Z",
+  "notes": "﻿## What's Fixed in VaalAuras v1.0.3\n\n- **Fixed overlay startup crash on both CUDA and DirectML**: Resolved a native compilation bug in the HUD resource reader (\u0000xC0000005 access violation) and disabled Cython runtime annotation enforcement so compiled .pyd/.so builds match Python runtime behavior cleanly.\n- **Fixed off-thread UI calls**: Moved update checker, update download/planning dialog, and skill-calibration save callbacks onto main-thread Tk queues to prevent background-thread Tk crashes.\n- **Added crash diagnostics**: Native faults and unhandled exceptions now persist to \u0007pp/vaalauras_crash.log (automatically cleaned up on normal exit, with prior crashes preserved in \u000baalauras_crash.prev.log).\n- **Layout & Sword Skill Icons**: Includes updated Edit Mode HUD layout positioning, side-aware center gap adjustments, and refreshed sword skill icons.\n\n### Smart Incremental Updates\nExisting v1.0.2 installations update automatically via the in-app delta updater (downloading only the updated compiled code archive and asset pack while reusing Python 3.12, GPU runtimes, and OCR models).\r\n",
+  "assets": [
+    {
+      "name": "vaalauras-assets.pak",
+      "size": 33365820,
+      "digest": "sha256:463fd0c62e11ca766742d21e2c7b4633df499e67a1b54100b3f5c88a0e804ea7",
+      "downloadUrl": "https://vaalauras.com/api/releases/download/v1.0.3/vaalauras-assets.pak"
+    },
+    {
+      "name": "vaalauras-code-linux-x64.tar.gz",
+      "size": 7607569,
+      "digest": "sha256:b8c1df3566728cefb02c8a8f695c15512964682abe82f3f39af061b0db8ee67f",
+      "downloadUrl": "https://vaalauras.com/api/releases/download/v1.0.3/vaalauras-code-linux-x64.tar.gz"
+    },
+    {
+      "name": "vaalauras-code-win-x64.tar.gz",
+      "size": 8764986,
+      "digest": "sha256:b7d480dc2863119994d7153aa803ce6dfa010becf79330c63eb88200d21fdaf7",
+      "downloadUrl": "https://vaalauras.com/api/releases/download/v1.0.3/vaalauras-code-win-x64.tar.gz"
+    },
+    {
+      "name": "vaalauras-update-manifest.json",
+      "size": 703,
+      "digest": "sha256:0ad3e2a86f391a43d7f30679ef49a6e565f51ded4b6f3f2fb7f47f71470dd8c7",
+      "downloadUrl": "https://vaalauras.com/api/releases/download/v1.0.3/vaalauras-update-manifest.json"
+    },
+    {
+      "name": "VaalAurasSetup-linux-x86_64.sh",
+      "size": 39676465,
+      "digest": "sha256:f169fb4d1fb5235d7446522afe442f716d2e79ddefbe739755b6ff443aed13ea",
+      "downloadUrl": "https://vaalauras.com/api/releases/download/v1.0.3/VaalAurasSetup-linux-x86_64.sh"
+    },
+    {
+      "name": "VaalAurasSetup.exe",
+      "size": 84858782,
+      "digest": "sha256:410cc28624a1473292addd697a2661d038a836caabd408a2d4fb4f3ef2591432",
+      "downloadUrl": "https://vaalauras.com/api/releases/download/v1.0.3/VaalAurasSetup.exe"
+    }
+  ]
+}

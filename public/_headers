@@ -8,3 +8,7 @@
   Cache-Control: no-cache, must-revalidate
 /styles.css
   Cache-Control: no-cache, must-revalidate
+/api/releases/latest
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=120
+  X-Content-Type-Options: nosniff

@@ -12,6 +12,7 @@ import {
   randomHex,
   sealPayloadWeb,
 } from './src/lib/webTokens';
+import { PUBLISHED_RELEASE_INDEX, type IndexedReleaseAsset } from './src/generated/releaseIndex';
 import type { ChangelogPost, GuideArticle, SiteSettings } from './src/types';
 
 export interface KVNamespaceLike {
@@ -53,6 +54,74 @@ const ALLOWED_RELEASE_ASSETS = new Set([
   'vaalauras-code-linux-x64.tar.gz',
   'vaalauras-assets.pak',
 ]);
+
+const RELEASE_LOOKUP_CACHE_TTL_MS = 5 * 60 * 1000;
+const releaseAssetLookupCache = new Map<string, { asset: IndexedReleaseAsset; expiresAt: number }>();
+
+export function clearReleaseLookupCacheForTests(): void {
+  releaseAssetLookupCache.clear();
+}
+
+async function resolveApprovedReleaseAsset(
+  repo: string,
+  tag: string,
+  assetName: string,
+  token: string,
+  indexOverride?: Readonly<Record<string, Readonly<Record<string, IndexedReleaseAsset>>>>
+): Promise<{ asset: IndexedReleaseAsset | null; status: number }> {
+  const index = indexOverride ?? PUBLISHED_RELEASE_INDEX;
+  const indexed = index[tag]?.[assetName];
+  if (indexed && Number.isSafeInteger(indexed.id) && indexed.id > 0) {
+    return { asset: indexed, status: 200 };
+  }
+
+  const cacheKey = `${repo}:${tag}:${assetName}`;
+  const cached = releaseAssetLookupCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { asset: cached.asset, status: 200 };
+  }
+
+  const relResp = await fetch(
+    `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'VaalAuras-ReleaseRelay/1.0',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    }
+  );
+  if (!relResp.ok) {
+    return { asset: null, status: relResp.status === 404 ? 404 : 502 };
+  }
+
+  const rel = (await relResp.json()) as {
+    draft?: boolean;
+    assets?: Array<{ id?: number; name?: string; content_type?: string; size?: number }>;
+  };
+  if (rel.draft) {
+    return { asset: null, status: 404 };
+  }
+
+  const expiresAt = Date.now() + RELEASE_LOOKUP_CACHE_TTL_MS;
+  let matched: IndexedReleaseAsset | null = null;
+  for (const item of Array.isArray(rel.assets) ? rel.assets : []) {
+    if (typeof item?.name !== 'string' || !ALLOWED_RELEASE_ASSETS.has(item.name)) continue;
+    const id = Number(item.id);
+    if (!Number.isSafeInteger(id) || id <= 0) continue;
+    const entry: IndexedReleaseAsset = {
+      id,
+      size: Number(item.size || 0),
+      contentType: typeof item.content_type === 'string' && item.content_type ? item.content_type : 'application/octet-stream',
+    };
+    releaseAssetLookupCache.set(`${repo}:${tag}:${item.name}`, { asset: entry, expiresAt });
+    if (item.name === assetName) {
+      matched = entry;
+    }
+  }
+  return { asset: matched, status: matched ? 200 : 404 };
+}
 
 const ALLOWED_MEDIA_TYPES: Record<string, { ext: string; mediaType: 'video' | 'image' }> = {
   'video/mp4': { ext: 'mp4', mediaType: 'video' },
@@ -456,67 +525,69 @@ export async function handleApiRequest(
     }
 
     const repo = (env.GITHUB_RELEASES_REPO || DEFAULT_RELEASES_REPO).trim();
-    const ghHeaders = {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-      'User-Agent': 'VaalAuras-ReleaseRelay/1.0',
-      'X-GitHub-Api-Version': '2022-11-28',
-    };
-    const relResp = await fetch(
-      `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`,
-      { headers: ghHeaders }
+    const { asset, status: lookupStatus } = await resolveApprovedReleaseAsset(repo, tag, assetName, token);
+    if (!asset) {
+      return jsonResponse(
+        { ok: false, error: lookupStatus === 404 ? 'Release asset not found.' : 'Release lookup failed.' },
+        lookupStatus
+      );
+    }
+
+    // Authorize with GitHub using the server-side asset ID; pass GitHub's temporary 302 redirect
+    // directly to the client so large binaries bypass Cloudflare bandwidth, keeping the token in the Worker.
+    const assetApiResp = await fetch(
+      `https://api.github.com/repos/${repo}/releases/assets/${asset.id}`,
+      {
+        method: 'GET',
+        redirect: 'manual',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/octet-stream',
+          'User-Agent': 'VaalAuras-ReleaseRelay/1.0',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      }
     );
-    if (!relResp.ok) {
-      return jsonResponse({ ok: false, error: 'Release not found.' }, relResp.status === 404 ? 404 : 502);
-    }
-    const rel = (await relResp.json()) as {
-      assets?: Array<{ name?: string; url?: string; content_type?: string; size?: number }>;
-    };
-    const asset = (Array.isArray(rel.assets) ? rel.assets : []).find((a) => a?.name === assetName);
-    if (!asset?.url) {
-      return jsonResponse({ ok: false, error: 'Release asset not found.' }, 404);
-    }
 
-    // Request signed S3 redirect from GitHub API without forwarding Authorization to S3.
-    const assetApiResp = await fetch(asset.url, {
-      method: 'GET',
-      redirect: 'manual',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/octet-stream',
-        'User-Agent': 'VaalAuras-ReleaseRelay/1.0',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-    });
-
-    let binaryResp: Response;
     const redirectLocation = assetApiResp.headers.get('location');
     if (assetApiResp.status >= 300 && assetApiResp.status < 400 && redirectLocation) {
-      binaryResp = await fetch(redirectLocation, {
-        method,
-        headers: { 'User-Agent': 'VaalAuras-ReleaseRelay/1.0' },
+      let parsedRedirect: URL;
+      try {
+        parsedRedirect = new URL(redirectLocation);
+      } catch {
+        return jsonResponse({ ok: false, error: 'Upstream returned invalid redirect URL.' }, 502);
+      }
+      if (parsedRedirect.protocol !== 'https:') {
+        return jsonResponse({ ok: false, error: 'Upstream returned insecure redirect URL.' }, 502);
+      }
+      // Keep the temporary signed download URL out of public caches and referrers.
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: parsedRedirect.toString(),
+          'Cache-Control': 'private, no-store',
+          'Referrer-Policy': 'no-referrer',
+          'X-Content-Type-Options': 'nosniff',
+        },
       });
-    } else if (assetApiResp.ok) {
-      binaryResp = assetApiResp;
-    } else {
+    }
+
+    if (!assetApiResp.ok) {
       return jsonResponse({ ok: false, error: `Asset download failed (${assetApiResp.status}).` }, 502);
     }
 
-    if (!binaryResp.ok) {
-      return jsonResponse({ ok: false, error: `Asset storage fetch failed (${binaryResp.status}).` }, 502);
-    }
-
+    // Streaming fallback when GitHub returns the asset body directly with 200.
     const outHeaders = new Headers({
-      'Content-Type': asset.content_type || binaryResp.headers.get('content-type') || 'application/octet-stream',
+      'Content-Type': asset.contentType || assetApiResp.headers.get('content-type') || 'application/octet-stream',
       'Content-Disposition': `attachment; filename="${assetName}"`,
-      'Cache-Control': 'public, max-age=300',
+      'Cache-Control': 'private, no-store',
       'X-Content-Type-Options': 'nosniff',
     });
-    const contentLength = binaryResp.headers.get('content-length') || (asset.size ? String(asset.size) : '');
+    const contentLength = assetApiResp.headers.get('content-length') || (asset.size ? String(asset.size) : '');
     if (contentLength) {
       outHeaders.set('Content-Length', contentLength);
     }
-    return new Response(method === 'HEAD' ? null : binaryResp.body, {
+    return new Response(method === 'HEAD' ? null : assetApiResp.body, {
       status: 200,
       headers: outHeaders,
     });
