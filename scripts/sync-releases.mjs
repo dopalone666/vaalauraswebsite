@@ -116,7 +116,34 @@ for (const rel of published) {
     releaseIndex[tag] = byName;
   }
 }
+const manifestName = 'vaalauras-update-manifest.json';
+const manifestAsset = latest.assets?.find((asset) => asset.name === manifestName);
 
+if (!Number.isSafeInteger(manifestAsset?.id) || manifestAsset.id <= 0) {
+  throw new Error(`Release ${latestTag} is missing ${manifestName}.`);
+}
+
+const manifestResponse = await fetch(
+  `https://api.github.com/repos/${REPO}/releases/assets/${manifestAsset.id}`,
+  {
+    headers: { ...ghHeaders, Accept: 'application/octet-stream' },
+    signal: AbortSignal.timeout(30_000),
+  },
+);
+
+if (!manifestResponse.ok) {
+  throw new Error(`GitHub manifest download failed (${manifestResponse.status}).`);
+}
+
+const manifestBytes = Buffer.from(await manifestResponse.arrayBuffer());
+const manifest = JSON.parse(manifestBytes.toString('utf8'));
+if (manifest.version !== latestPayload.version || !manifest.signature) {
+  throw new Error(`Release ${latestTag} has a missing signature or mismatched manifest version.`);
+}
+
+const manifestDir = path.join(ROOT, 'public', 'api', 'releases', 'download', latestTag);
+await mkdir(manifestDir, { recursive: true });
+await writeFile(path.join(manifestDir, manifestName), manifestBytes);
 const latestFile = path.join(ROOT, 'public', 'api', 'releases', 'latest');
 const indexFile = path.join(ROOT, 'src', 'generated', 'releaseIndex.ts');
 
